@@ -2,6 +2,18 @@ from . import db
 from sqlalchemy.orm import relationship
 from sqlalchemy import CheckConstraint
 from datetime import datetime
+from zoneinfo import ZoneInfo  # <-- zona horaria oficial
+
+# Hora local de Chile (UTC-3 / UTC-4 segun DST)
+CHILE_TZ = ZoneInfo("America/Santiago")
+
+def ahora_chile():
+    """
+    Retorna la hora local de Chile como datetime naive (sin tzinfo),
+    para que se guarde igual que antes pero con la hora correcta.
+    """
+    return datetime.now(CHILE_TZ).replace(tzinfo=None)
+
 
 class Cliente(db.Model):
     __tablename__ = "clientes"
@@ -13,12 +25,19 @@ class Cliente(db.Model):
     telefono = db.Column(db.String(20))
     email = db.Column(db.String(150), unique=True)
     direccion = db.Column(db.Text)
-    fecha_registro = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_registro = db.Column(db.DateTime, default=ahora_chile)  # <-- antes: datetime.utcnow
     estado = db.Column(db.String(20), default="activo")
 
-    membresias = relationship("ClienteMembresia", back_populates="cliente", cascade="all, delete-orphan")
-    asistencias = relationship("Asistencia", back_populates="cliente", cascade="all, delete-orphan")
-    pagos = relationship("Pago", back_populates="cliente", cascade="all, delete-orphan")
+    membresias = relationship(
+        "ClienteMembresia", back_populates="cliente", cascade="all, delete-orphan"
+    )
+    asistencias = relationship(
+        "Asistencia", back_populates="cliente", cascade="all, delete-orphan"
+    )
+    pagos = relationship(
+        "Pago", back_populates="cliente", cascade="all, delete-orphan"
+    )
+
 
 class Membresia(db.Model):
     __tablename__ = "membresias"
@@ -30,11 +49,16 @@ class Membresia(db.Model):
 
     clientes = relationship("ClienteMembresia", back_populates="membresia")
 
+
 class ClienteMembresia(db.Model):
     __tablename__ = "cliente_membresias"
     cliente_membresia_id = db.Column(db.Integer, primary_key=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE"))
-    membresia_id = db.Column(db.Integer, db.ForeignKey("membresias.membresia_id"))
+    cliente_id = db.Column(
+        db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE")
+    )
+    membresia_id = db.Column(
+        db.Integer, db.ForeignKey("membresias.membresia_id")
+    )
     fecha_inicio = db.Column(db.Date, nullable=False)
     fecha_fin = db.Column(db.Date, nullable=False)
     estado = db.Column(db.String(20), default="activa")
@@ -43,23 +67,31 @@ class ClienteMembresia(db.Model):
     membresia = relationship("Membresia", back_populates="clientes")
     pagos = relationship("Pago", back_populates="cliente_membresia")
 
+
 class Pago(db.Model):
     __tablename__ = "pagos"
     pago_id = db.Column(db.Integer, primary_key=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE"))
-    cliente_membresia_id = db.Column(db.Integer, db.ForeignKey("cliente_membresias.cliente_membresia_id"))
+    cliente_id = db.Column(
+        db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE")
+    )
+    cliente_membresia_id = db.Column(
+        db.Integer, db.ForeignKey("cliente_membresias.cliente_membresia_id")
+    )
     monto = db.Column(db.Numeric(10, 2), nullable=False)
-    fecha_pago = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_pago = db.Column(db.DateTime, default=ahora_chile)  # <-- antes: datetime.utcnow
     metodo_pago = db.Column(db.String(50))
 
     cliente = relationship("Cliente", back_populates="pagos")
     cliente_membresia = relationship("ClienteMembresia", back_populates="pagos")
 
+
 class Asistencia(db.Model):
     __tablename__ = "asistencias"
     asistencia_id = db.Column(db.Integer, primary_key=True)
-    cliente_id = db.Column(db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE"))
-    fecha_hora = db.Column(db.DateTime, default=datetime.utcnow)
+    cliente_id = db.Column(
+        db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE")
+    )
+    fecha_hora = db.Column(db.DateTime, default=ahora_chile)  # <-- antes: datetime.utcnow
     tipo = db.Column(db.String(10), nullable=False)
 
     __table_args__ = (

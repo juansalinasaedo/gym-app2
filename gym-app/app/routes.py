@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from datetime import date, timedelta, datetime
 from decimal import Decimal
-from sqlalchemy import func
+from sqlalchemy import func, cast, Date
 from . import db
 from .models import Cliente, Membresia, Pago, Asistencia, ClienteMembresia
 
@@ -144,38 +144,41 @@ def pagos_hoy():
             Pago.pago_id,
             Pago.monto,
             Pago.metodo_pago,
-            func.strftime("%H:%M", Pago.fecha_pago).label("hora"),
+            Pago.fecha_pago,
             Cliente.nombre,
             Cliente.apellido,
             Cliente.rut,
         )
-        .join(Cliente, Cliente.cliente_id == Pago.cliente_id)
-        .filter(func.date(Pago.fecha_pago) == hoy)
+        .join(Cliente)
+        .filter(cast(Pago.fecha_pago, Date) == hoy)
         .order_by(Pago.fecha_pago.desc())
         .all()
     )
 
-    data = [
-        {
-            "pago_id": p.pago_id,
-            "monto": float(p.monto),
-            "metodo_pago": p.metodo_pago,
-            "hora": p.hora,
-            "nombre": p.nombre,
-            "apellido": p.apellido,
-            "rut": p.rut,
-        }
-        for p in pagos
-    ]
+    data = []
+    for p in pagos:
+        pago_id, monto, metodo_pago, fecha_pago, nombre, apellido, rut = p
+        hora_str = fecha_pago.strftime("%H:%M") if fecha_pago else None
+        data.append(
+            {
+                "pago_id": pago_id,
+                "monto": float(monto),  # por si viene como Decimal
+                "metodo_pago": metodo_pago,
+                "hora": hora_str,
+                "nombre": nombre,
+                "apellido": apellido,
+                "rut": rut,
+            }
+        )
 
     resumen = {
-        "total_general": float(sum(p["monto"] for p in data)),
-        "total_efectivo": float(sum(p["monto"] for p in data if p["metodo_pago"] == "Efectivo")),
-        "total_tarjeta": float(sum(p["monto"] for p in data if p["metodo_pago"] == "Tarjeta")),
-        "total_transferencia": float(sum(p["monto"] for p in data if p["metodo_pago"] == "Transferencia")),
+        "total_general": sum(d["monto"] for d in data),
+        "total_efectivo": sum(d["monto"] for d in data if d["metodo_pago"] == "Efectivo"),
+        "total_tarjeta": sum(d["monto"] for d in data if d["metodo_pago"] == "Tarjeta"),
+        "total_transferencia": sum(d["monto"] for d in data if d["metodo_pago"] == "Transferencia"),
     }
-
     return jsonify({"pagos": data, "resumen": resumen})
+
 
 # ---------- ASIGNAR / RENOVAR + PAGO (endpoint que faltaba) ----------
 
@@ -280,6 +283,7 @@ def marcar_asistencia():
 @bp.get("/asistencias/hoy")
 def asistencias_hoy():
     hoy = date.today()
+    # Trae el datetime completo y la hora la formateamos en Python
     asist = (
         db.session.query(
             Asistencia.asistencia_id,
@@ -287,25 +291,31 @@ def asistencias_hoy():
             Cliente.apellido,
             Cliente.rut,
             Cliente.cliente_id,
-            func.strftime("%H:%M", Asistencia.fecha_hora).label("hora"),
+            Asistencia.fecha_hora,
         )
-        .join(Cliente, Cliente.cliente_id == Asistencia.cliente_id)
-        .filter(func.date(Asistencia.fecha_hora) == hoy)
+        .join(Cliente)
+        .filter(cast(Asistencia.fecha_hora, Date) == hoy)
         .order_by(Asistencia.fecha_hora.desc())
         .all()
     )
-    data = [
-        {
-            "asistencia_id": a.asistencia_id,
-            "nombre": a.nombre,
-            "apellido": a.apellido,
-            "rut": a.rut,
-            "cliente_id": a.cliente_id,
-            "hora": a.hora,
-        }
-        for a in asist
-    ]
+
+    data = []
+    for a in asist:
+        # a es un Row: (asistencia_id, nombre, apellido, rut, cliente_id, fecha_hora)
+        asistencia_id, nombre, apellido, rut, cliente_id, fecha_hora = a
+        hora_str = fecha_hora.strftime("%H:%M") if fecha_hora else None
+        data.append(
+            {
+                "asistencia_id": asistencia_id,
+                "nombre": nombre,
+                "apellido": apellido,
+                "rut": rut,
+                "cliente_id": cliente_id,
+                "hora": hora_str,
+            }
+        )
     return jsonify(data)
+
 
 # -------------------- VENCIMIENTOS ≤ 3 días --------------------
 
