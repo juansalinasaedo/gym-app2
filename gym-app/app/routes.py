@@ -13,6 +13,7 @@ bp = Blueprint("api", __name__)
 
 APP_TZ = ZoneInfo("America/Santiago")
 CL_TZ = pytz.timezone("America/Santiago")
+CHILE_TZ = ZoneInfo("America/Santiago")
 def to_cl_time(dt):
     """Convierte un datetime (naive o con tz) a America/Santiago."""
     if dt is None:
@@ -58,6 +59,46 @@ def _last_plan(cliente_id):
         .order_by(ClienteMembresia.fecha_fin.desc())
         .first()
     )
+
+def _to_datetime(obj):
+    """
+    Acepta datetime o str y devuelve un datetime.
+    Soporta ISO (con o sin 'Z') y formatos comunes de SQL.
+    """
+    if isinstance(obj, datetime):
+        return obj
+    if isinstance(obj, str):
+        s = obj.strip()
+        # Soporta ISO con Z (UTC)
+        if s.endswith("Z"):
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except Exception:
+                pass
+        # ISO estándar
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            pass
+        # Formatos típicos de SQL
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                continue
+    # Fallback: ahora
+    return datetime.utcnow()
+
+def _to_chile_dt(dt_any):
+    """
+    Toma str o datetime; devuelve datetime en America/Santiago.
+    Si viene naive, se asume UTC (consistente con default=datetime.utcnow).
+    """
+    dt = _to_datetime(dt_any)
+    if dt.tzinfo is None:
+        # asumimos que lo que guardaste era UTC (default de tu modelo)
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(CHILE_TZ)
 
 # -------------------- CLIENTES --------------------
 
@@ -150,35 +191,58 @@ def membresia_activa(cliente_id):
     )
 
 # -------------------- PAGOS (caja del día) --------------------
-
 @bp.get("/pagos/hoy")
 def pagos_hoy():
     hoy = date.today()
-    pagos = (
-        db.session.query(
-            Pago.pago_id,
-            Pago.monto,
-            Pago.metodo_pago,
-            Pago.fecha_pago,      # 👈 datetime
-            Cliente.nombre,
-            Cliente.apellido,
-            Cliente.rut,
+
+    # Para Postgres usamos timezone('America/Santiago', ...) para "traer" la hora local
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Pago.fecha_pago)
+        fecha_local = cast(tz_expr, Date)                               # fecha local (CL)
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")     # "HH:MM" local
+
+        rows = (
+            db.session.query(
+                Pago.pago_id,
+                Pago.monto,
+                Pago.metodo_pago,
+                hora_local,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+            )
+            .join(Cliente)
+            .filter(fecha_local == hoy)
+            .order_by(hora_local.asc())
+            .all()
         )
-        .join(Cliente)
-        .filter(cast(Pago.fecha_pago, Date) == hoy)  # 👈 agnóstico a motor
-        .order_by(Pago.fecha_pago.desc())
-        .all()
-    )
+    else:
+        # SQLite: usamos date() y strftime()
+        rows = (
+            db.session.query(
+                Pago.pago_id,
+                Pago.monto,
+                Pago.metodo_pago,
+                func.strftime("%H:%M", Pago.fecha_pago).label("hora"),
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+            )
+            .join(Cliente)
+            .filter(func.date(Pago.fecha_pago) == hoy)
+            .order_by(Pago.fecha_pago.asc())
+            .all()
+        )
 
     data = []
-    for p_id, monto, metodo, fecha_pago, nombre, apellido, rut in pagos:
-        hora_local = to_cl_time(fecha_pago).strftime("%H:%M")
+    for p_id, monto, metodo, hora_txt, nombre, apellido, rut in rows:
+        # hora_txt YA VIENE formateada "HH:MM"; no uses .strftime aquí
         data.append(
             {
                 "pago_id": p_id,
-                "monto": float(monto),       # por si usas Numeric
+                "monto": float(monto or 0),
                 "metodo_pago": metodo,
-                "hora": hora_local,
+                "hora": hora_txt or "",
                 "nombre": nombre,
                 "apellido": apellido,
                 "rut": rut,
@@ -187,12 +251,12 @@ def pagos_hoy():
 
     resumen = {
         "total_general": sum(p["monto"] for p in data),
-        "total_efectivo": sum(p["monto"] for p in data if p["metodo_pago"] == "Efectivo"),
-        "total_tarjeta": sum(p["monto"] for p in data if p["metodo_pago"] == "Tarjeta"),
-        "total_transferencia": sum(p["monto"] for p in data if p["metodo_pago"] == "Transferencia"),
+        "total_efectivo": sum(p["monto"] for p in data if (p["metodo_pago"] or "").lower() == "efectivo"),
+        "total_tarjeta": sum(p["monto"] for p in data if (p["metodo_pago"] or "").lower() == "tarjeta"),
+        "total_transferencia": sum(p["monto"] for p in data if (p["metodo_pago"] or "").lower() == "transferencia"),
     }
-    return jsonify({"pagos": data, "resumen": resumen})
 
+    return jsonify({"pagos": data, "resumen": resumen})
 
 # ---------- ASIGNAR / RENOVAR + PAGO (endpoint que faltaba) ----------
 
@@ -212,6 +276,18 @@ def pagar_y_renovar(cliente_id):
     if not cliente:
         return jsonify({"error": "cliente no existe"}), 404
 
+    # ⚠️ NUEVO: evitar pagos duplicados mientras la membresía esté activa
+    activa = (
+        ClienteMembresia.query
+        .filter(ClienteMembresia.cliente_id == cliente_id, ClienteMembresia.estado == "activa")
+        .first()
+    )
+    if activa and activa.fecha_fin >= hoy:
+        return jsonify({
+            "error": "membresia_activa",
+            "detalle": "El cliente ya tiene una membresía activa vigente. No puede registrar otro pago hasta que venza."
+        }), 409
+
     # --- decidir plan a utilizar ---
     membresia_id = payload.get("membresia_id")
     plan = None
@@ -220,13 +296,12 @@ def pagar_y_renovar(cliente_id):
         if not plan:
             return jsonify({"error": "membresía no existe"}), 404
     else:
-        # renovar sobre el último plan del cliente
         last = _last_plan(cliente_id)
         if not last:
             return jsonify({"error": "no hay plan previo para renovar"}), 400
         plan = last.membresia
 
-    # --- cerrar activas previas y crear/renovar ---
+    # --- cerrar activas previas y crear nueva ---
     _cerrar_membresias_activas(cliente_id)
 
     fecha_inicio = hoy
@@ -240,15 +315,19 @@ def pagar_y_renovar(cliente_id):
         estado="activa",
     )
     db.session.add(cm)
-    db.session.flush()  # para tener cm.cliente_membresia_id
+    db.session.flush()
 
-    # --- crear pago ---
+    # ⚙️ NUEVO: hora local de Chile
+    from zoneinfo import ZoneInfo
+    CHILE_TZ = ZoneInfo("America/Santiago")
+    fecha_pago_local = datetime.now(CHILE_TZ)
+
     pago = Pago(
         cliente_id=cliente_id,
         cliente_membresia_id=cm.cliente_membresia_id,
         monto=monto,
         metodo_pago=metodo,
-        fecha_pago=datetime.utcnow(),
+        fecha_pago=fecha_pago_local,  # 👈 hora local, no UTC
     )
     db.session.add(pago)
     db.session.commit()

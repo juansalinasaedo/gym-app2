@@ -1,10 +1,6 @@
 // src/api.js
-
-// Si existe VITE_API_BASE (por ejemplo en .env), se usa esa URL absoluta.
-// En desarrollo, el proxy del vite.config.js maneja "/api" directamente.
 const BASE = import.meta.env.VITE_API_BASE || "/api";
 
-// Helper genérico para manejar errores y validar JSON
 async function fetchJSON(url, options = {}) {
   const res = await fetch(url, options);
   const ct = res.headers.get("content-type") || "";
@@ -14,7 +10,6 @@ async function fetchJSON(url, options = {}) {
     throw new Error(`${res.status} ${res.statusText}: ${txt}`);
   }
 
-  // Si no es JSON, probablemente devolvió HTML (por error de proxy)
   if (!ct.includes("application/json")) {
     const txt = await res.text();
     console.error("⚠️ Respuesta no-JSON desde", url, "\n", txt);
@@ -24,12 +19,12 @@ async function fetchJSON(url, options = {}) {
   return res.json();
 }
 
-// ---- CLIENTES ----
-export async function apiGetClientes() {
+/* CLIENTES */
+export function apiGetClientes() {
   return fetchJSON(`${BASE}/clientes`);
 }
 
-export async function apiCrearCliente(payload) {
+export function apiCrearCliente(payload) {
   return fetchJSON(`${BASE}/clientes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -37,12 +32,12 @@ export async function apiCrearCliente(payload) {
   });
 }
 
-// ---- MEMBRESÍAS ----
-export async function apiGetMembresias() {
+/* MEMBRESÍAS */
+export function apiGetMembresias() {
   return fetchJSON(`${BASE}/membresias`);
 }
 
-export async function apiCrearMembresia(payload) {
+export function apiCrearMembresia(payload) {
   return fetchJSON(`${BASE}/membresias`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -50,17 +45,16 @@ export async function apiCrearMembresia(payload) {
   });
 }
 
-// ---- MEMBRESÍA ACTIVA ----
-export async function apiGetMembresiaActiva(clienteId) {
+export function apiGetMembresiaActiva(clienteId) {
   return fetchJSON(`${BASE}/clientes/${clienteId}/membresias/activa`);
 }
 
-// ---- PAGOS ----
-export async function apiGetPagosHoy() {
+/* PAGOS */
+export function apiGetPagosHoy() {
   return fetchJSON(`${BASE}/pagos/hoy`);
 }
 
-export async function apiPagarYRenovar(clienteId, body) {
+export function apiPagarYRenovar(clienteId, body) {
   return fetchJSON(`${BASE}/clientes/${clienteId}/pagos/pagar_y_renovar`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -68,8 +62,8 @@ export async function apiPagarYRenovar(clienteId, body) {
   });
 }
 
-// ---- ASISTENCIAS ----
-export async function apiGetAsistenciasHoy() {
+/* ASISTENCIAS */
+export function apiGetAsistenciasHoy() {
   return fetchJSON(`${BASE}/asistencias/hoy`);
 }
 
@@ -80,9 +74,13 @@ export async function apiMarcarAsistencia(body) {
     body: JSON.stringify(body),
   });
 
-  // Intentamos leer JSON siempre para adjuntarlo al error si falla
   let payload = null;
-  try { payload = await res.json(); } catch {}
+  try {
+    payload = await res.json();
+  } catch (e) {
+    // Algunos backends/proxy devuelven cuerpo vacío en errores: evitamos el "catch" vacío
+    payload = null;
+  }
 
   if (!res.ok) {
     const err = new Error(payload?.error || `POST /asistencias ${res.status}`);
@@ -93,7 +91,7 @@ export async function apiMarcarAsistencia(body) {
   return payload;
 }
 
-// ---- VENCIMIENTOS PRÓXIMOS ----
-export async function apiGetVencimientosProximos() {
+/* VENCIMIENTOS PRÓXIMOS */
+export function apiGetVencimientosProximos() {
   return fetchJSON(`${BASE}/vencimientos_proximos`);
 }

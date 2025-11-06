@@ -1,6 +1,6 @@
 // src/components/clients/SearchClient.jsx
 import { useEffect, useMemo, useState } from "react";
-import { norm, rutDigits } from "../../utils/rut";
+import { norm, rutDigits, formatRUT, validarRUT } from "../../utils/rut";
 
 export default function SearchClient({ clientes, value, onSelect }) {
   const [q, setQ] = useState("");
