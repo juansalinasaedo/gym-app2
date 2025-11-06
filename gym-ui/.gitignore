@@ -1,0 +1,31 @@
+# Node / Vite
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+pnpm-lock.yaml
+yarn.lock
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+instance/
+.mypy_cache/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.*
+!.env.example
