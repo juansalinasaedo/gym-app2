@@ -20,10 +20,10 @@ import { useVencimientos } from "./hooks/useVencimientos";
 
 export default function CashierPanel() {
   const [clienteId, setClienteId] = useState("");
-  const [msg, setMsg] = useState(null); // <<< agregado para poder pasar setMsg a formularios
+  const [msg, setMsg] = useState(null);
 
   // hooks de datos
-  const { clientes, crearCliente /*, refetch: refetchClientes*/ } = useClientes();
+  const { clientes, crearCliente } = useClientes();
   const { membresias, crearMembresia } = useMembresias();
   const { items: asistencias, marcarEntrada, posting } = useAsistenciasHoy();
   const { pagos, resumen, fetchPagos } = usePagosHoy();
@@ -54,6 +54,13 @@ export default function CashierPanel() {
     await fetchVencimientos();
   };
 
+  // --------- banners ligeros arriba ----------
+  const showClienteNoSel = !clienteId;
+  const showActiva =
+    !!info &&
+    info.estado === "activa" &&
+    Number(info.dias_restantes ?? 0) >= 0;
+
   return (
     <div className="p-5 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4 text-gray-900">🏋️ Panel Cajero — Gimnasio</h1>
@@ -61,6 +68,19 @@ export default function CashierPanel() {
       {msg && (
         <div className="mb-4 p-3 rounded-md border border-gray-300 bg-white text-sm">
           {msg}
+        </div>
+      )}
+
+      {/* Avisos generales */}
+      {showClienteNoSel && (
+        <div className="mb-4 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
+          Selecciona un cliente con el buscador o crea uno nuevo para habilitar los módulos.
+        </div>
+      )}
+      {showActiva && (
+        <div className="mb-4 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
+          ⚠️ El cliente ya tiene una <b>membresía activa</b> (vence el <b>{info.fecha_fin}</b>, quedan{" "}
+          <b>{info.dias_restantes}</b> días). No se pueden registrar nuevos pagos hasta que venza.
         </div>
       )}
 
@@ -84,17 +104,11 @@ export default function CashierPanel() {
 
       {/* 2) Crear Cliente */}
       <Section title="2) Crear Cliente">
-        {/*
-          CreateClientForm debería aceptar al menos:
-          - onSubmit / onCreate: (payload) => Promise
-          - setMsg opcional para mostrar feedback arriba.
-        */}
         <CreateClientForm
           onCreate={crearCliente}
           setMsg={setMsg}
           onCreated={() => {
-            // Si tu hook useClientes expone refetch, úsalo aquí:
-            // refetchClientes?.();
+            /* si tu hook expone refetch, úsalo aquí */
           }}
         />
       </Section>
