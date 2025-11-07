@@ -10,6 +10,8 @@ import TodayEntries from "./components/attendance/TodayEntries";
 import Cashbox from "./components/cash/Cashbox";
 import UpcomingExpirations from "./components/expirations/UpcomingExpirations";
 import React from "react";
+import PaymentsExport from "./components/reports/PaymentsExport";
+import AssistsRange from "./components/reports/AssistsRange";
 
 import { useClientes } from "./hooks/useClientes";
 import { useMembresias } from "./hooks/useMembresias";
@@ -102,8 +104,8 @@ export default function CashierPanel() {
         </div>
       </Section>
 
-      {/* 2) Crear Cliente */}
-      <Section title="2) Crear Cliente">
+      {/* 2) Registrar Nuevo Cliente */}
+      <Section title="2) Registrar Nuevo Cliente">
         <CreateClientForm
           onCreate={crearCliente}
           setMsg={setMsg}
@@ -132,6 +134,15 @@ export default function CashierPanel() {
 
       {/* 7) Vencimientos próximos */}
       <UpcomingExpirations items={vencimientos} />
+
+      {/* 8) Reportes */}
+      <Section title="8) Reportes">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <PaymentsExport />
+          <AssistsRange />
+        </div>
+      </Section>
+
 
       <footer className="text-[11px] text-gray-500 text-center mt-10">
         v0.7 · Caja / Recepción

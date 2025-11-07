@@ -95,3 +95,23 @@ export async function apiMarcarAsistencia(body) {
 export function apiGetVencimientosProximos() {
   return fetchJSON(`${BASE}/vencimientos_proximos`);
 }
+
+// Buscar asistencias por rango
+export async function apiAsistenciasRango(desde, hasta) {
+  const qs = new URLSearchParams();
+  if (desde) qs.set("from", desde);
+  if (hasta) qs.set("to", hasta);
+  const r = await fetch(`/api/asistencias/rango?` + qs.toString());
+  if (!r.ok) throw new Error("Error buscando asistencias por rango");
+  return await r.json(); // {from, to, items: [...]}
+}
+
+// Descargar Excel de pagos
+export async function apiExportPagosExcel(desde, hasta) {
+  const qs = new URLSearchParams();
+  if (desde) qs.set("from", desde);
+  if (hasta) qs.set("to", hasta);
+  const r = await fetch(`/api/pagos/export_excel?` + qs.toString());
+  if (!r.ok) throw new Error("No se pudo descargar el Excel de pagos");
+  return await r.blob(); // Blob del xlsx
+}

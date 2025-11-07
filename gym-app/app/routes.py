@@ -1,29 +1,156 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 from decimal import Decimal
-from sqlalchemy import func, cast, Date  
+from sqlalchemy import func, cast, Date
 from sqlalchemy.engine import Engine
-import pytz
 from zoneinfo import ZoneInfo
+import pytz
+import io
+
 from . import db
 from .models import Cliente, Membresia, Pago, Asistencia, ClienteMembresia
+
+from openpyxl import Workbook  # pip install openpyxl
+from openpyxl.styles import Font, Alignment
 
 bp = Blueprint("api", __name__)
 
 APP_TZ = ZoneInfo("America/Santiago")
 CL_TZ = pytz.timezone("America/Santiago")
 CHILE_TZ = ZoneInfo("America/Santiago")
+
+
 def to_cl_time(dt):
-    """Convierte un datetime (naive o con tz) a America/Santiago."""
+    """Convierte un datetime (naive o con tz) a America/Santiago y retorna HH:MM."""
     if dt is None:
         return None
-    # asumimos que guardas en UTC; si viene naive lo tomamos como UTC
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(APP_TZ).strftime("%H:%M")
 
+
 # -------------------- Helpers --------------------
+
+def _hora_local_hhmm(dt):
+    """Devuelve hora local HH:MM en America/Santiago desde un datetime (naive=UTC)."""
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(CHILE_TZ).strftime("%H:%M")
+
+
+@bp.get("/asistencias/rango/excel")
+def asistencias_rango_excel():
+    """
+    Descarga Excel de entradas entre fechas (inclusive).
+    GET: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+    """
+    desde_s = request.args.get("desde")
+    hasta_s = request.args.get("hasta")
+    if not desde_s or not hasta_s:
+        return jsonify({"error": "Parámetros 'desde' y 'hasta' son obligatorios"}), 400
+
+    try:
+        d1 = date.fromisoformat(desde_s)
+        d2 = date.fromisoformat(hasta_s)
+    except Exception:
+        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
+
+    if d2 < d1:
+        d1, d2 = d2, d1
+
+    # Consulta: solo ENTRADAS dentro del rango (orden nuevo->antiguo)
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
+        rows = (
+            db.session.query(
+                Asistencia.fecha_hora,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                Cliente.cliente_id,
+            )
+            .join(Cliente)
+            .filter(
+                cast(tz_expr, Date) >= d1,
+                cast(tz_expr, Date) <= d2,
+                Asistencia.tipo == "entrada",
+            )
+            .order_by(Asistencia.fecha_hora.desc())
+            .all()
+        )
+    else:
+        # SQLite
+        rows = (
+            db.session.query(
+                Asistencia.fecha_hora,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                Cliente.cliente_id,
+            )
+            .join(Cliente)
+            .filter(
+                func.date(Asistencia.fecha_hora) >= d1,
+                func.date(Asistencia.fecha_hora) <= d2,
+                Asistencia.tipo == "entrada",
+            )
+            .order_by(Asistencia.fecha_hora.desc())
+            .all()
+        )
+
+    # Crear Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Entradas"
+
+    headers = ["Fecha", "Hora", "Cliente", "RUT", "ID Cliente"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center")
+
+    for fecha_hora, nombre, apellido, rut, cid in rows:
+        fecha_local = (_to_chile_dt(fecha_hora)).date().isoformat()
+        hora_local = _hora_local_hhmm(fecha_hora)
+        ws.append([fecha_local, hora_local, f"{nombre} {apellido}", rut, f"#{cid}"])
+
+    # Auto ancho simple
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for c in col:
+            try:
+                max_len = max(max_len, len(str(c.value)))
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = max(12, min(35, max_len + 2))
+
+    # Enviar archivo
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    filename = f"entradas_{d1.isoformat()}_a_{d2.isoformat()}.xlsx"
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+def _parse_date(s: str | None):
+    if not s:
+        return None
+    s = s.strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    return None
+
 
 def _decimal(v):
     """Asegura tipo Decimal para montos numéricos."""
@@ -36,9 +163,10 @@ def _decimal(v):
     except Exception:
         return Decimal("0")
 
+
 def _cerrar_membresias_activas(cliente_id, fecha_fin=None):
     """Marca 'vencida' cualquier membresía activa del cliente."""
-    hoy = date.today()
+    _ = date.today()
     ll = (
         ClienteMembresia.query
         .filter_by(cliente_id=cliente_id, estado="activa")
@@ -46,10 +174,10 @@ def _cerrar_membresias_activas(cliente_id, fecha_fin=None):
     )
     for cm in ll:
         cm.estado = "vencida"
-        # opcional: si quieres ajustar fecha_fin al día anterior
         if fecha_fin:
             cm.fecha_fin = fecha_fin
     db.session.flush()
+
 
 def _last_plan(cliente_id):
     """Último plan del cliente por fecha_fin."""
@@ -60,45 +188,37 @@ def _last_plan(cliente_id):
         .first()
     )
 
+
 def _to_datetime(obj):
-    """
-    Acepta datetime o str y devuelve un datetime.
-    Soporta ISO (con o sin 'Z') y formatos comunes de SQL.
-    """
+    """Acepta datetime o str y devuelve un datetime."""
     if isinstance(obj, datetime):
         return obj
     if isinstance(obj, str):
         s = obj.strip()
-        # Soporta ISO con Z (UTC)
         if s.endswith("Z"):
             try:
                 return datetime.fromisoformat(s.replace("Z", "+00:00"))
             except Exception:
                 pass
-        # ISO estándar
         try:
             return datetime.fromisoformat(s)
         except Exception:
             pass
-        # Formatos típicos de SQL
         for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
             try:
                 return datetime.strptime(s, fmt)
             except Exception:
                 continue
-    # Fallback: ahora
     return datetime.utcnow()
 
+
 def _to_chile_dt(dt_any):
-    """
-    Toma str o datetime; devuelve datetime en America/Santiago.
-    Si viene naive, se asume UTC (consistente con default=datetime.utcnow).
-    """
+    """Toma str o datetime; devuelve datetime en America/Santiago."""
     dt = _to_datetime(dt_any)
     if dt.tzinfo is None:
-        # asumimos que lo que guardaste era UTC (default de tu modelo)
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(CHILE_TZ)
+
 
 # -------------------- CLIENTES --------------------
 
@@ -118,6 +238,7 @@ def get_clientes():
     ]
     return jsonify(data)
 
+
 @bp.post("/clientes")
 def crear_cliente():
     data = request.json or {}
@@ -131,6 +252,7 @@ def crear_cliente():
     db.session.add(nuevo)
     db.session.commit()
     return jsonify({"msg": "cliente creado", "cliente_id": nuevo.cliente_id}), 201
+
 
 # -------------------- MEMBRESÍAS --------------------
 
@@ -150,6 +272,7 @@ def get_membresias():
         ]
     )
 
+
 @bp.post("/membresias")
 def crear_membresia():
     data = request.json or {}
@@ -162,6 +285,7 @@ def crear_membresia():
     db.session.add(nueva)
     db.session.commit()
     return jsonify({"msg": "membresía creada", "membresia_id": nueva.membresia_id}), 201
+
 
 # -------------------- MEMBRESÍA ACTIVA --------------------
 
@@ -190,17 +314,16 @@ def membresia_activa(cliente_id):
         }
     )
 
+
 # -------------------- PAGOS (caja del día) --------------------
 @bp.get("/pagos/hoy")
 def pagos_hoy():
     hoy = date.today()
 
-    # Para Postgres usamos timezone('America/Santiago', ...) para "traer" la hora local
     if _is_postgres(db.session):
         tz_expr = func.timezone("America/Santiago", Pago.fecha_pago)
-        fecha_local = cast(tz_expr, Date)                               # fecha local (CL)
-        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")     # "HH:MM" local
-
+        fecha_local = cast(tz_expr, Date)
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
         rows = (
             db.session.query(
                 Pago.pago_id,
@@ -217,7 +340,6 @@ def pagos_hoy():
             .all()
         )
     else:
-        # SQLite: usamos date() y strftime()
         rows = (
             db.session.query(
                 Pago.pago_id,
@@ -236,7 +358,6 @@ def pagos_hoy():
 
     data = []
     for p_id, monto, metodo, hora_txt, nombre, apellido, rut in rows:
-        # hora_txt YA VIENE formateada "HH:MM"; no uses .strftime aquí
         data.append(
             {
                 "pago_id": p_id,
@@ -258,15 +379,11 @@ def pagos_hoy():
 
     return jsonify({"pagos": data, "resumen": resumen})
 
-# ---------- ASIGNAR / RENOVAR + PAGO (endpoint que faltaba) ----------
+
+# ---------- ASIGNAR / RENOVAR + PAGO ----------
 
 @bp.post("/clientes/<int:cliente_id>/pagos/pagar_y_renovar")
 def pagar_y_renovar(cliente_id):
-    """
-    Si viene 'membresia_id' => Asignar ese plan + pago (cierra las activas previas).
-    Si NO viene 'membresia_id' => Renovar el último plan + pago.
-    Body JSON: { membresia_id?, monto, metodo_pago }
-    """
     payload = request.json or {}
     monto = _decimal(payload.get("monto"))
     metodo = (payload.get("metodo_pago") or "Efectivo").strip()
@@ -276,7 +393,7 @@ def pagar_y_renovar(cliente_id):
     if not cliente:
         return jsonify({"error": "cliente no existe"}), 404
 
-    # ⚠️ NUEVO: evitar pagos duplicados mientras la membresía esté activa
+    # Evitar pagos duplicados con membresía vigente
     activa = (
         ClienteMembresia.query
         .filter(ClienteMembresia.cliente_id == cliente_id, ClienteMembresia.estado == "activa")
@@ -288,9 +405,7 @@ def pagar_y_renovar(cliente_id):
             "detalle": "El cliente ya tiene una membresía activa vigente. No puede registrar otro pago hasta que venza."
         }), 409
 
-    # --- decidir plan a utilizar ---
     membresia_id = payload.get("membresia_id")
-    plan = None
     if membresia_id:
         plan = Membresia.query.get(int(membresia_id))
         if not plan:
@@ -301,7 +416,6 @@ def pagar_y_renovar(cliente_id):
             return jsonify({"error": "no hay plan previo para renovar"}), 400
         plan = last.membresia
 
-    # --- cerrar activas previas y crear nueva ---
     _cerrar_membresias_activas(cliente_id)
 
     fecha_inicio = hoy
@@ -317,8 +431,6 @@ def pagar_y_renovar(cliente_id):
     db.session.add(cm)
     db.session.flush()
 
-    # ⚙️ NUEVO: hora local de Chile
-    from zoneinfo import ZoneInfo
     CHILE_TZ = ZoneInfo("America/Santiago")
     fecha_pago_local = datetime.now(CHILE_TZ)
 
@@ -327,7 +439,7 @@ def pagar_y_renovar(cliente_id):
         cliente_membresia_id=cm.cliente_membresia_id,
         monto=monto,
         metodo_pago=metodo,
-        fecha_pago=fecha_pago_local,  # 👈 hora local, no UTC
+        fecha_pago=fecha_pago_local,
     )
     db.session.add(pago)
     db.session.commit()
@@ -351,6 +463,7 @@ def pagar_y_renovar(cliente_id):
         }
     }), 201
 
+
 # -------------------- ASISTENCIAS --------------------
 
 @bp.post("/asistencias")
@@ -359,7 +472,6 @@ def marcar_asistencia():
     cliente_id = int(data["cliente_id"])
     tipo = (data.get("tipo") or "entrada").lower()
 
-    # Solo 1 "entrada" por día
     if tipo == "entrada":
         hoy = date.today()
         existente = (
@@ -372,7 +484,6 @@ def marcar_asistencia():
             .first()
         )
         if existente:
-            # devolvemos 409 + info de la marca existente
             return (
                 jsonify(
                     {
@@ -384,9 +495,6 @@ def marcar_asistencia():
                 409,
             )
 
-    # Verifica membresía activa SOLO para marcar "entrada"
-    if tipo == "entrada":
-        hoy = date.today()
         cm = (
             ClienteMembresia.query.filter_by(cliente_id=cliente_id, estado="activa")
             .order_by(ClienteMembresia.fecha_fin.desc())
@@ -400,18 +508,19 @@ def marcar_asistencia():
     db.session.commit()
     return jsonify({"msg": "asistencia registrada"}), 201
 
+
 def _is_postgres(session) -> bool:
     eng: Engine = session.get_bind()
     return eng.dialect.name == "postgresql"
+
 
 @bp.get("/asistencias/hoy")
 def asistencias_hoy():
     hoy = date.today()
     if _is_postgres(db.session):
-        # PostgreSQL: convertir a America/Santiago antes de truncar a fecha y formatear hora
         tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
-        fecha_local = cast(tz_expr, Date)                                  # fecha local
-        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")        # HH:MM local
+        fecha_local = cast(tz_expr, Date)
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
         rows = (
             db.session.query(
                 Asistencia.asistencia_id,
@@ -427,7 +536,6 @@ def asistencias_hoy():
             .all()
         )
     else:
-        # SQLite: usar date() y strftime()
         rows = (
             db.session.query(
                 Asistencia.asistencia_id,
@@ -455,6 +563,170 @@ def asistencias_hoy():
         for a in rows
     ]
     return jsonify(data)
+
+
+# --------- Entradas por rango (JSON) ---------------
+
+@bp.get("/asistencias/rango")
+def asistencias_rango():
+    """
+    ?from=YYYY-MM-DD&to=YYYY-MM-DD
+    Devuelve SOLO 'entrada' entre esas fechas (inclusive), con fecha y hora local CL.
+    """
+    d_from = _parse_date(request.args.get("from"))
+    d_to = _parse_date(request.args.get("to"))
+
+    if not d_from and not d_to:
+        d_to = date.today()
+        d_from = d_to - timedelta(days=30)
+
+    if not d_from:
+        d_from = d_to
+    if not d_to:
+        d_to = d_from
+
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
+        fecha_loc = cast(tz_expr, Date).label("fecha")
+        hora_loc = func.to_char(tz_expr, "HH24:MI").label("hora")
+        rows = (
+            db.session.query(
+                Asistencia.asistencia_id,
+                Cliente.nombre, Cliente.apellido, Cliente.rut, Cliente.cliente_id,
+                fecha_loc, hora_loc
+            )
+            .join(Cliente)
+            .filter(Asistencia.tipo == "entrada")
+            .filter(fecha_loc >= d_from, fecha_loc <= d_to)
+            .order_by(fecha_loc.asc(), hora_loc.asc())
+            .all()
+        )
+        data = [
+            {
+                "asistencia_id": r.asistencia_id,
+                "cliente_id": r.cliente_id,
+                "nombre": r.nombre,
+                "apellido": r.apellido,
+                "rut": r.rut,
+                "fecha": str(r.fecha),
+                "hora": r.hora,
+            } for r in rows
+        ]
+    else:
+        rows = (
+            db.session.query(
+                Asistencia.asistencia_id,
+                Cliente.nombre, Cliente.apellido, Cliente.rut, Cliente.cliente_id,
+                func.date(Asistencia.fecha_hora).label("fecha"),
+                func.strftime("%H:%M", Asistencia.fecha_hora).label("hora"),
+            )
+            .join(Cliente)
+            .filter(Asistencia.tipo == "entrada")
+            .filter(func.date(Asistencia.fecha_hora) >= d_from,
+                    func.date(Asistencia.fecha_hora) <= d_to)
+            .order_by(func.date(Asistencia.fecha_hora).asc(),
+                      Asistencia.fecha_hora.asc())
+            .all()
+        )
+        data = [
+            {
+                "asistencia_id": r.asistencia_id,
+                "cliente_id": r.cliente_id,
+                "nombre": r.nombre,
+                "apellido": r.apellido,
+                "rut": r.rut,
+                "fecha": r.fecha,
+                "hora": r.hora,
+            } for r in rows
+        ]
+
+    return jsonify({"from": str(d_from), "to": str(d_to), "items": data})
+
+
+# ----------------- Excel de pagos (orden DESC) -----------------
+
+@bp.get("/pagos/export_excel")
+def pagos_export_excel():
+    """
+    Descarga un Excel con pagos ordenados del más nuevo al más antiguo.
+    Filtros opcionales: ?from=YYYY-MM-DD&to=YYYY-MM-DD
+    Si no envías nada, toma últimos 30 días.
+    """
+    d_from = _parse_date(request.args.get("from"))
+    d_to = _parse_date(request.args.get("to"))
+
+    if not d_from and not d_to:
+        d_to = date.today()
+        d_from = d_to - timedelta(days=30)
+    if not d_from:
+        d_from = d_to
+    if not d_to:
+        d_to = d_from
+
+    q = (
+        db.session.query(
+            Pago.pago_id,
+            Pago.monto,
+            Pago.metodo_pago,
+            Pago.fecha_pago,
+            Cliente.nombre,
+            Cliente.apellido,
+            Cliente.rut,
+        )
+        .join(Cliente)
+    )
+
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Pago.fecha_pago)
+        fecha_loc = cast(tz_expr, Date)
+        q = q.filter(fecha_loc >= d_from, fecha_loc <= d_to)
+    else:
+        q = q.filter(func.date(Pago.fecha_pago) >= d_from,
+                    func.date(Pago.fecha_pago) <= d_to)
+
+    pagos = q.order_by(Pago.fecha_pago.desc()).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pagos"
+
+    headers = ["Fecha", "Hora", "Cliente", "RUT", "Método", "Monto"]
+    ws.append(headers)
+
+    total_general = Decimal("0")
+    por_metodo = {"Efectivo": Decimal("0"),
+                  "Tarjeta": Decimal("0"),
+                  "Transferencia": Decimal("0")}
+
+    for p_id, monto, metodo, fecha_pago, nombre, apellido, rut in pagos:
+        dt_local = _to_chile_dt(fecha_pago)
+        f = dt_local.strftime("%Y-%m-%d")
+        h = dt_local.strftime("%H:%M")
+
+        total_general += _decimal(monto)
+        if metodo in por_metodo:
+            por_metodo[metodo] += _decimal(monto)
+
+        ws.append([f, h, f"{nombre} {apellido}", rut, metodo, float(monto)])
+
+    ws.append([])
+    ws.append(["", "", "", "", "TOTAL GENERAL", float(total_general)])
+    ws.append(["", "", "", "", "EFECTIVO", float(por_metodo["Efectivo"])])
+    ws.append(["", "", "", "", "TARJETA", float(por_metodo["Tarjeta"])])
+    ws.append(["", "", "", "", "TRANSFERENCIA", float(por_metodo["Transferencia"])])
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = f"pagos_{d_from.strftime('%Y%m%d')}_{d_to.strftime('%Y%m%d')}.xlsx"
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 
 # -------------------- VENCIMIENTOS ≤ 3 días --------------------
 
