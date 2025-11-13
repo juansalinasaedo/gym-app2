@@ -1,117 +1,200 @@
 // src/api.js
-const BASE = import.meta.env.VITE_API_BASE || "/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "";
+const json = { "Content-Type": "application/json" };
 
-async function fetchJSON(url, options = {}) {
-  const res = await fetch(url, options);
+// -------- helpers ----------
+async function fetchJson(url, opts = {}) {
+  const res = await fetch(url, { credentials: "include", ...opts });
   const ct = res.headers.get("content-type") || "";
 
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${txt}`);
+    let msg = `HTTP ${res.status}`;
+    try {
+      if (ct.includes("application/json")) {
+        const j = await res.json();
+        msg = j?.detail || j?.error || msg;
+      } else {
+        msg = await res.text();
+      }
+    } catch {}
+    throw new Error(msg);
   }
+  return ct.includes("application/json") ? res.json() : res;
+}
 
-  if (!ct.includes("application/json")) {
-    const txt = await res.text();
-    console.error("⚠️ Respuesta no-JSON desde", url, "\n", txt);
-    throw new Error("Respuesta no válida (no es JSON)");
+async function doJson(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: json,
+    credentials: "include",
+    ...opts,
+  });
+  const ct = res.headers.get("content-type") || "";
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      if (ct.includes("application/json")) {
+        const j = await res.json();
+        msg = j?.detail || j?.error || msg;
+      } else {
+        msg = await res.text();
+      }
+    } catch {}
+    throw new Error(msg);
   }
-
   return res.json();
 }
 
-/* CLIENTES */
-export function apiGetClientes() {
-  return fetchJSON(`${BASE}/clientes`);
+/* ===== Auth ===== */
+export async function apiLogin(email, password) {
+  return doJson(`${API_BASE}/auth/login`, {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+export async function apiLogout() {
+  return doJson(`${API_BASE}/auth/logout`, { method: "POST" });
+}
+export async function apiMe() {
+  return doJson(`${API_BASE}/auth/me`);
 }
 
-export function apiCrearCliente(payload) {
-  return fetchJSON(`${BASE}/clientes`, {
+/* ===== Admin usuarios ===== */
+export async function apiUsersList() {
+  return doJson(`${API_BASE}/auth/users`);
+}
+export async function apiUsersCreate(payload) {
+  return doJson(`${API_BASE}/auth/users`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+export async function apiUsersToggle(userId, enabled) {
+  return doJson(`${API_BASE}/auth/users/${userId}/enable`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+}
+export async function apiUsersDelete(userId) {
+  return doJson(`${API_BASE}/auth/users/${userId}`, { method: "DELETE" });
+}
+// Resetear password de un usuario (solo admin)
+export async function apiUsersResetPassword(userId, password) {
+  return doJson(`${API_BASE}/auth/users/${userId}/password`, {
+    method: "PATCH",
+    body: JSON.stringify({ password }),
+  });
+}
+
+/* ===== Clientes ===== */
+export async function apiGetClientes() {
+  return fetchJson(`${API_BASE}/api/clientes`);
+}
+export async function apiCrearCliente(payload) {
+  return fetchJson(`${API_BASE}/api/clientes`, {
+    method: "POST",
+    headers: json,
     body: JSON.stringify(payload),
   });
 }
 
-/* MEMBRESÍAS */
-export function apiGetMembresias() {
-  return fetchJSON(`${BASE}/membresias`);
+/* ===== Membresías ===== */
+export async function apiGetMembresias() {
+  return fetchJson(`${API_BASE}/api/membresias`);
 }
-
-export function apiCrearMembresia(payload) {
-  return fetchJSON(`${BASE}/membresias`, {
+export async function apiCrearMembresia(payload) {
+  return fetchJson(`${API_BASE}/api/membresias`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: json,
     body: JSON.stringify(payload),
   });
 }
-
-export function apiGetMembresiaActiva(clienteId) {
-  return fetchJSON(`${BASE}/clientes/${clienteId}/membresias/activa`);
+export async function apiGetMembresiaActiva(clienteId) {
+  return fetchJson(`${API_BASE}/api/clientes/${clienteId}/membresias/activa`);
 }
 
-/* PAGOS */
-export function apiGetPagosHoy() {
-  return fetchJSON(`${BASE}/pagos/hoy`);
+/* ===== Asignar/Renovar + Pago ===== */
+export async function apiPagarYRenovar(clienteId, body) {
+  return fetchJson(
+    `${API_BASE}/api/clientes/${clienteId}/pagos/pagar_y_renovar`,
+    {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify(body),
+    }
+  );
 }
 
-export function apiPagarYRenovar(clienteId, body) {
-  return fetchJSON(`${BASE}/clientes/${clienteId}/pagos/pagar_y_renovar`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+/* ===== Asistencias ===== */
+export async function apiGetAsistenciasHoy() {
+  return fetchJson(`${API_BASE}/api/asistencias/hoy`);
 }
 
-/* ASISTENCIAS */
-export function apiGetAsistenciasHoy() {
-  return fetchJSON(`${BASE}/asistencias/hoy`);
-}
-
-export async function apiMarcarAsistencia(body) {
-  const res = await fetch(`${BASE}/asistencias`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  let payload = null;
-  try {
-    payload = await res.json();
-  } catch (e) {
-    // Algunos backends/proxy devuelven cuerpo vacío en errores: evitamos el "catch" vacío
-    payload = null;
+export async function apiMarcarAsistencia(clienteId, tipo = "entrada") {
+  // sanity checks
+  if (clienteId === undefined || clienteId === null || `${clienteId}`.trim() === "") {
+    throw new Error("clienteId vacío");
   }
+  const cid = Number(clienteId);
+  if (Number.isNaN(cid)) {
+    throw new Error("clienteId no numérico");
+  }
+
+  const res = await fetch(`${API_BASE}/api/asistencias`, {
+    method: "POST",
+    credentials: "include",
+    headers: json,
+    // Enviamos ambas claves por compatibilidad con el backend
+    body: JSON.stringify({ cliente_id: cid, clienteId: cid, tipo: tipo || "entrada" }),
+  });
+
+  const ct = res.headers.get("content-type") || "";
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      if (ct.includes("application/json")) {
+        const j = await res.json();
+        msg = j?.detail || j?.error || msg;
+      } else {
+        msg = await res.text();
+      }
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function apiAsistenciasRango(desde, hasta) {
+  const qs = new URLSearchParams({ from: desde, to: hasta }).toString();
+  return fetchJson(`${API_BASE}/api/asistencias/rango?${qs}`);
+}
+export function apiAsistenciasRangoExcelUrl(desde, hasta) {
+  const qs = new URLSearchParams({ desde, hasta }).toString();
+  return `${API_BASE}/api/asistencias/rango/excel?${qs}`;
+}
+
+/* ===== Pagos / Caja ===== */
+export async function apiGetPagosHoy() {
+  return fetchJson(`${API_BASE}/api/pagos/hoy`);
+}
+// src/api.js
+export async function apiExportPagosExcel(desde, hasta) {
+  const params = new URLSearchParams();
+  if (desde) params.append("desde", desde);
+  if (hasta) params.append("hasta", hasta);
+
+  const res = await fetch(`/api/reportes/pagos_excel?${params.toString()}`, {
+    credentials: "include",
+  });
 
   if (!res.ok) {
-    const err = new Error(payload?.error || `POST /asistencias ${res.status}`);
-    err.status = res.status;
-    err.data = payload;
-    throw err;
+    throw new Error("Error al generar Excel");
   }
-  return payload;
+
+  return await res.blob();
 }
 
-/* VENCIMIENTOS PRÓXIMOS */
-export function apiGetVencimientosProximos() {
-  return fetchJSON(`${BASE}/vencimientos_proximos`);
-}
-
-// Buscar asistencias por rango
-export async function apiAsistenciasRango(desde, hasta) {
-  const qs = new URLSearchParams();
-  if (desde) qs.set("from", desde);
-  if (hasta) qs.set("to", hasta);
-  const r = await fetch(`/api/asistencias/rango?` + qs.toString());
-  if (!r.ok) throw new Error("Error buscando asistencias por rango");
-  return await r.json(); // {from, to, items: [...]}
-}
-
-// Descargar Excel de pagos
-export async function apiExportPagosExcel(desde, hasta) {
-  const qs = new URLSearchParams();
-  if (desde) qs.set("from", desde);
-  if (hasta) qs.set("to", hasta);
-  const r = await fetch(`/api/pagos/export_excel?` + qs.toString());
-  if (!r.ok) throw new Error("No se pudo descargar el Excel de pagos");
-  return await r.blob(); // Blob del xlsx
+/* ===== Vencimientos ===== */
+export async function apiGetVencimientosProximos() {
+  return fetchJson(`${API_BASE}/api/vencimientos_proximos`);
 }

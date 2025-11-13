@@ -1,0 +1,25 @@
+# --- Testing ---
+pytest==8.3.3
+pytest-cov==5.0.0
+
+# --- Debugging ---
+flask-debugtoolbar==0.13.1
+
+# --- Static analysis / Linting ---
+flake8==7.1.1
+flake8-bugbear==24.10.20
+flake8-builtins==2.4.0
+flake8-comprehensions==3.15.0
+
+# --- Type checking (opcional, recomendado) ---
+mypy==1.13.0
+types-requests==2.32.0.20241016
+types-PyYAML==6.0.12.20240820
+
+# --- Code formatting ---
+black==24.10.0
+isort==5.13.2
+
+# --- Utilities ---
+pip-tools==7.4.1          # Para manejar dependencias profesionales
+python-dotenv==1.2.1      # Ya está en prod, pero útil también para dev

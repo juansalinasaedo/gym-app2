@@ -1,3 +1,4 @@
+// src/components/reports/PaymentsExport.jsx
 import React, { useState } from "react";
 import { apiExportPagosExcel } from "../../api";
 
@@ -9,17 +10,34 @@ export default function PaymentsExport() {
   const onDownload = async () => {
     try {
       setDownloading(true);
+
+      // Llamamos a la API
       const blob = await apiExportPagosExcel(desde, hasta);
-      const dFrom = desde || new Date(Date.now() - 30*24*3600*1000).toISOString().slice(0,10);
-      const dTo   = hasta || new Date().toISOString().slice(0,10);
-      const url = URL.createObjectURL(blob);
+
+      // 👇 Validación extra: debe ser un Blob
+      if (!(blob instanceof Blob)) {
+        console.error("Respuesta no es Blob, llegó:", blob);
+        throw new Error("La respuesta del servidor no es un archivo descargable.");
+      }
+
+      const dFrom =
+        desde ||
+        new Date(Date.now() - 30 * 24 * 3600 * 1000)
+          .toISOString()
+          .slice(0, 10);
+      const dTo = hasta || new Date().toISOString().slice(0, 10);
+
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `pagos_${dFrom.replaceAll("-","")}_${dTo.replaceAll("-","")}.xlsx`;
+      a.download = `pagos_${dFrom.replaceAll("-", "")}_${dTo.replaceAll(
+        "-",
+        ""
+      )}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(url);
     } catch (e) {
       alert("Error al descargar el Excel de pagos.");
       console.error(e);
@@ -36,13 +54,21 @@ export default function PaymentsExport() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
         <div>
           <label className="block text-xs text-gray-600 mb-1">Desde</label>
-          <input type="date" className="border rounded px-2 py-1 w-full"
-                 value={desde} onChange={e => setDesde(e.target.value)} />
+          <input
+            type="date"
+            className="border rounded px-2 py-1 w-full"
+            value={desde}
+            onChange={(e) => setDesde(e.target.value)}
+          />
         </div>
         <div>
           <label className="block text-xs text-gray-600 mb-1">Hasta</label>
-          <input type="date" className="border rounded px-2 py-1 w-full"
-                 value={hasta} onChange={e => setHasta(e.target.value)} />
+          <input
+            type="date"
+            className="border rounded px-2 py-1 w-full"
+            value={hasta}
+            onChange={(e) => setHasta(e.target.value)}
+          />
         </div>
         <div className="flex items-end">
           <button

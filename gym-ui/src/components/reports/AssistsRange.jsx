@@ -23,7 +23,7 @@ export default function AssistsRange() {
     try {
       setLoading(true);
       const data = await apiAsistenciasRango(from, to);
-      setItems(data.items || []);
+      setItems(Array.isArray(data) ? data : (data.items || []));
     } catch (e) {
       console.error(e);
       alert("Error al buscar asistencias.");

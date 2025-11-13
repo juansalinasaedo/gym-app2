@@ -1,5 +1,5 @@
 // src/CashierPanel.jsx
-import { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Section from "./components/Section";
 import SearchClient from "./components/clients/SearchClient";
 import ClientSummary from "./components/clients/ClientSummary";
@@ -9,7 +9,6 @@ import CreateMembershipForm from "./components/memberships/CreateMembershipForm"
 import TodayEntries from "./components/attendance/TodayEntries";
 import Cashbox from "./components/cash/Cashbox";
 import UpcomingExpirations from "./components/expirations/UpcomingExpirations";
-import React from "react";
 import PaymentsExport from "./components/reports/PaymentsExport";
 import AssistsRange from "./components/reports/AssistsRange";
 
@@ -19,25 +18,32 @@ import { useMembresiaActiva } from "./hooks/useMembresiaActiva";
 import { useAsistenciasHoy } from "./hooks/useAsistenciasHoy";
 import { usePagosHoy } from "./hooks/usePagosHoy";
 import { useVencimientos } from "./hooks/useVencimientos";
+import { useAuth } from "./auth/AuthProvider";
 
 export default function CashierPanel() {
   const [clienteId, setClienteId] = useState("");
   const [msg, setMsg] = useState(null);
 
-  // hooks de datos
-  const { clientes, crearCliente } = useClientes();
-  const { membresias, crearMembresia } = useMembresias();
-  const { items: asistencias, marcarEntrada, posting } = useAsistenciasHoy();
-  const { pagos, resumen, fetchPagos } = usePagosHoy();
-  const { vencimientos, fetchVencimientos } = useVencimientos();
-  const { info, activa } = useMembresiaActiva(clienteId);
+  const { user, isAdmin, ready, logout } = useAuth();
+
+  const { clientes = [], crearCliente } = useClientes();
+  const { membresias = [], crearMembresia } = useMembresias();
+  const { items: asistencias = [], marcarEntrada, posting } = useAsistenciasHoy();
+  const {
+    pagos = [],
+    resumen = { total_general: 0, total_efectivo: 0, total_tarjeta: 0, total_transferencia: 0 },
+    fetchPagos,
+  } = usePagosHoy();
+  const { vencimientos = [], fetchVencimientos } = useVencimientos();
+  const { info = null, activa = false } = useMembresiaActiva(clienteId || null);
+
+  useEffect(() => { setMsg(null); }, [clienteId]);
 
   const clienteSel = useMemo(
     () => clientes.find((c) => String(c.cliente_id) === String(clienteId)),
     [clientes, clienteId]
   );
 
-  // anti-doble entrada (usa asistencias ya cargadas)
   const hit = asistencias.find((a) => String(a.cliente_id) === String(clienteId));
   const yaEntroHoy = !!hit;
   const horaPrimeraEntrada = hit?.hora || "";
@@ -45,7 +51,7 @@ export default function CashierPanel() {
   const onEntrada = async () => {
     try {
       const r = await marcarEntrada(Number(clienteId));
-      if (!r.ok && r?.message) setMsg(`⚠️ ${r.message}`);
+      if (!r?.ok && r?.message) setMsg(`⚠️ ${r.message}`);
     } catch (e) {
       setMsg(`❌ Error al registrar entrada: ${e.message}`);
     }
@@ -56,24 +62,38 @@ export default function CashierPanel() {
     await fetchVencimientos();
   };
 
-  // --------- banners ligeros arriba ----------
   const showClienteNoSel = !clienteId;
-  const showActiva =
-    !!info &&
-    info.estado === "activa" &&
-    Number(info.dias_restantes ?? 0) >= 0;
+  const showActiva = !!info && info.estado === "activa" && Number(info.dias_restantes ?? 0) >= 0;
+
+  if (!ready) {
+    return <div className="p-6 text-sm text-gray-600">Cargando sesión…</div>;
+  }
 
   return (
     <div className="p-5 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-gray-900">🏋️ Panel Cajero — Gimnasio</h1>
-
-      {msg && (
-        <div className="mb-4 p-3 rounded-md border border-gray-300 bg-white text-sm">
-          {msg}
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold text-gray-900">🏋️ Panel — Gimnasio</h1>
+        <div className="text-xs text-gray-600">
+          {user ? (
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-1 rounded bg-gray-100 border text-gray-700">
+                {user.name} — <b>{user.role}</b>
+              </span>
+              <button onClick={logout} className="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50">
+                Salir
+              </button>
+            </div>
+          ) : (
+            <span className="px-2 py-1 rounded bg-amber-50 border border-amber-300 text-amber-900">
+              No autenticado
+            </span>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Avisos generales */}
+      {msg && <div className="mb-4 p-3 rounded-md border border-gray-300 bg-white text-sm">{msg}</div>}
+
       {showClienteNoSel && (
         <div className="mb-4 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
           Selecciona un cliente con el buscador o crea uno nuevo para habilitar los módulos.
@@ -109,13 +129,15 @@ export default function CashierPanel() {
         <CreateClientForm
           onCreate={crearCliente}
           setMsg={setMsg}
-          onCreated={() => {
-            /* si tu hook expone refetch, úsalo aquí */
+          onCreated={(newId) => {
+            if (newId) setClienteId(String(newId));
           }}
+          // Si quisieras recarga dura, usa: reloadOnCreate
+          // reloadOnCreate
         />
       </Section>
 
-      {/* 3) Membresías (asignar / pagar / renovar) */}
+      {/* 3) Membresías */}
       <MembershipAssignRenew
         clienteId={clienteId}
         membresias={membresias}
@@ -123,15 +145,21 @@ export default function CashierPanel() {
         onAfterChange={refreshAfterPayment}
       />
 
-      {/* 4) Crear Plan */}
-      <CreateMembershipForm onCreate={crearMembresia} />
+      {/* 4) Crear Plan — SOLO ADMIN */}
+      {isAdmin && (
+        <Section title="4) Crear Plan (admin)">
+          <CreateMembershipForm onCreate={crearMembresia} />
+        </Section>
+      )}
 
       {/* 5) Entraron hoy */}
       <TodayEntries items={asistencias} />
 
       {/* 6) Caja del día */}
-      <Cashbox resumen={resumen} pagos={pagos} />
-
+      {isAdmin && (
+        <Cashbox resumen={resumen} pagos={pagos} />
+      )}
+      
       {/* 7) Vencimientos próximos */}
       <UpcomingExpirations items={vencimientos} />
 
@@ -142,7 +170,6 @@ export default function CashierPanel() {
           <AssistsRange />
         </div>
       </Section>
-
 
       <footer className="text-[11px] text-gray-500 text-center mt-10">
         v0.7 · Caja / Recepción

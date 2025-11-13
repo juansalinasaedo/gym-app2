@@ -1,24 +1,108 @@
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, has_app_context
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from sqlalchemy import func, cast, Date
 from sqlalchemy.engine import Engine
 from zoneinfo import ZoneInfo
+from .decorators import login_required, roles_required
 import pytz
 import io
 
 from . import db
 from .models import Cliente, Membresia, Pago, Asistencia, ClienteMembresia
 
-from openpyxl import Workbook  # pip install openpyxl
+from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
 
-bp = Blueprint("api", __name__)
+# --- IMPORTS NECESARIOS ---
+import datetime as dt
+from io import BytesIO
+import openpyxl
+
+bp = Blueprint("api", __name__, url_prefix="/api")
+
+@bp.get("/reportes/pagos_excel")
+@login_required
+def exportar_pagos_excel():
+    desde = request.args.get("desde")
+    hasta = request.args.get("hasta")
+
+    # Si no vienen fechas, últimos 30 días
+    hoy = dt.date.today()
+
+    if not hasta:
+        hasta_date = hoy
+    else:
+        hasta_date = dt.date.fromisoformat(hasta)
+
+    if not desde:
+        desde_date = hasta_date - dt.timedelta(days=30)
+    else:
+        desde_date = dt.date.fromisoformat(desde)
+
+    # Filtrar pagos
+    pagos = (
+        Pago.query
+        .filter(Pago.fecha_pago >= desde_date)
+        .filter(Pago.fecha_pago <= hasta_date)
+        .order_by(Pago.fecha_pago.desc())
+        .all()
+    )
+
+    # Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Pagos"
+
+    ws.append(["Fecha", "Hora", "Cliente", "RUT", "Método", "Monto"])
+
+    for p in pagos:
+        fecha = p.fecha_pago.strftime("%Y-%m-%d")
+        hora = p.fecha_pago.strftime("%H:%M")
+        cliente = f"{p.cliente.nombre} {p.cliente.apellido}" if p.cliente else ""
+        rut = p.cliente.rut if p.cliente else ""
+        ws.append([fecha, hora, cliente, rut, p.metodo_pago, float(p.monto)])
+
+    # bytes del archivo
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"pagos_{desde_date.strftime('%Y%m%d')}_{hasta_date.strftime('%Y%m%d')}.xlsx"
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+# ---------- Decoradores seguros (evitan usar current_app en import time) ----------
+def _noop(f):  # decorador vacío
+    return f
+
+def login_required(f):
+    """Usa current_app.login_required si hay contexto; si no, no-op."""
+    if has_app_context():
+        real = getattr(current_app, "login_required", None)
+        if callable(real):
+            return real(f)
+    return f
+
+def roles_required(*roles):
+    """Usa current_app.roles_required(*roles) si hay contexto; si no, no-op."""
+    if has_app_context():
+        real = getattr(current_app, "roles_required", None)
+        if callable(real):
+            return real(*roles)
+    def wrapper(f):
+        return f
+    return wrapper
+# -------------------------------------------------------------------------------
 
 APP_TZ = ZoneInfo("America/Santiago")
 CL_TZ = pytz.timezone("America/Santiago")
 CHILE_TZ = ZoneInfo("America/Santiago")
-
 
 def to_cl_time(dt):
     """Convierte un datetime (naive o con tz) a America/Santiago y retorna HH:MM."""
@@ -28,117 +112,13 @@ def to_cl_time(dt):
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(APP_TZ).strftime("%H:%M")
 
-
 # -------------------- Helpers --------------------
-
 def _hora_local_hhmm(dt):
-    """Devuelve hora local HH:MM en America/Santiago desde un datetime (naive=UTC)."""
     if dt is None:
         return ""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(CHILE_TZ).strftime("%H:%M")
-
-
-@bp.get("/asistencias/rango/excel")
-def asistencias_rango_excel():
-    """
-    Descarga Excel de entradas entre fechas (inclusive).
-    GET: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
-    """
-    desde_s = request.args.get("desde")
-    hasta_s = request.args.get("hasta")
-    if not desde_s or not hasta_s:
-        return jsonify({"error": "Parámetros 'desde' y 'hasta' son obligatorios"}), 400
-
-    try:
-        d1 = date.fromisoformat(desde_s)
-        d2 = date.fromisoformat(hasta_s)
-    except Exception:
-        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
-
-    if d2 < d1:
-        d1, d2 = d2, d1
-
-    # Consulta: solo ENTRADAS dentro del rango (orden nuevo->antiguo)
-    if _is_postgres(db.session):
-        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
-        rows = (
-            db.session.query(
-                Asistencia.fecha_hora,
-                Cliente.nombre,
-                Cliente.apellido,
-                Cliente.rut,
-                Cliente.cliente_id,
-            )
-            .join(Cliente)
-            .filter(
-                cast(tz_expr, Date) >= d1,
-                cast(tz_expr, Date) <= d2,
-                Asistencia.tipo == "entrada",
-            )
-            .order_by(Asistencia.fecha_hora.desc())
-            .all()
-        )
-    else:
-        # SQLite
-        rows = (
-            db.session.query(
-                Asistencia.fecha_hora,
-                Cliente.nombre,
-                Cliente.apellido,
-                Cliente.rut,
-                Cliente.cliente_id,
-            )
-            .join(Cliente)
-            .filter(
-                func.date(Asistencia.fecha_hora) >= d1,
-                func.date(Asistencia.fecha_hora) <= d2,
-                Asistencia.tipo == "entrada",
-            )
-            .order_by(Asistencia.fecha_hora.desc())
-            .all()
-        )
-
-    # Crear Excel
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Entradas"
-
-    headers = ["Fecha", "Hora", "Cliente", "RUT", "ID Cliente"]
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
-
-    for fecha_hora, nombre, apellido, rut, cid in rows:
-        fecha_local = (_to_chile_dt(fecha_hora)).date().isoformat()
-        hora_local = _hora_local_hhmm(fecha_hora)
-        ws.append([fecha_local, hora_local, f"{nombre} {apellido}", rut, f"#{cid}"])
-
-    # Auto ancho simple
-    for col in ws.columns:
-        max_len = 0
-        col_letter = col[0].column_letter
-        for c in col:
-            try:
-                max_len = max(max_len, len(str(c.value)))
-            except Exception:
-                pass
-        ws.column_dimensions[col_letter].width = max(12, min(35, max_len + 2))
-
-    # Enviar archivo
-    bio = io.BytesIO()
-    wb.save(bio)
-    bio.seek(0)
-    filename = f"entradas_{d1.isoformat()}_a_{d2.isoformat()}.xlsx"
-    return send_file(
-        bio,
-        as_attachment=True,
-        download_name=filename,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
 
 def _parse_date(s: str | None):
     if not s:
@@ -151,9 +131,7 @@ def _parse_date(s: str | None):
             continue
     return None
 
-
 def _decimal(v):
-    """Asegura tipo Decimal para montos numéricos."""
     if v is None:
         return Decimal("0")
     if isinstance(v, Decimal):
@@ -163,34 +141,24 @@ def _decimal(v):
     except Exception:
         return Decimal("0")
 
-
 def _cerrar_membresias_activas(cliente_id, fecha_fin=None):
-    """Marca 'vencida' cualquier membresía activa del cliente."""
     _ = date.today()
-    ll = (
-        ClienteMembresia.query
-        .filter_by(cliente_id=cliente_id, estado="activa")
-        .all()
-    )
+    ll = (ClienteMembresia.query
+          .filter_by(cliente_id=cliente_id, estado="activa")
+          .all())
     for cm in ll:
         cm.estado = "vencida"
         if fecha_fin:
             cm.fecha_fin = fecha_fin
     db.session.flush()
 
-
 def _last_plan(cliente_id):
-    """Último plan del cliente por fecha_fin."""
-    return (
-        ClienteMembresia.query
-        .filter(ClienteMembresia.cliente_id == cliente_id)
-        .order_by(ClienteMembresia.fecha_fin.desc())
-        .first()
-    )
-
+    return (ClienteMembresia.query
+            .filter(ClienteMembresia.cliente_id == cliente_id)
+            .order_by(ClienteMembresia.fecha_fin.desc())
+            .first())
 
 def _to_datetime(obj):
-    """Acepta datetime o str y devuelve un datetime."""
     if isinstance(obj, datetime):
         return obj
     if isinstance(obj, str):
@@ -211,35 +179,36 @@ def _to_datetime(obj):
                 continue
     return datetime.utcnow()
 
-
 def _to_chile_dt(dt_any):
-    """Toma str o datetime; devuelve datetime en America/Santiago."""
     dt = _to_datetime(dt_any)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(CHILE_TZ)
 
+def _is_postgres(session) -> bool:
+    eng: Engine = session.get_bind()
+    return eng.dialect.name == "postgresql"
 
 # -------------------- CLIENTES --------------------
-
 @bp.get("/clientes")
+@login_required
 def get_clientes():
     clientes = Cliente.query.all()
-    data = [
-        {
-            "cliente_id": c.cliente_id,
-            "nombre": c.nombre,
-            "apellido": c.apellido,
-            "rut": c.rut,
-            "email": c.email,
-            "estado": c.estado,
-        }
-        for c in clientes
-    ]
+    data = [{
+        "cliente_id": c.cliente_id,
+        "nombre": c.nombre,
+        "apellido": c.apellido,
+        "rut": c.rut,
+        "email": c.email,
+        "estado": c.estado,
+        "direccion": c.direccion,
+        "estado_laboral": c.estado_laboral,
+        "sexo": c.sexo,
+    } for c in clientes]
     return jsonify(data)
 
-
 @bp.post("/clientes")
+@roles_required("admin", "cashier")
 def crear_cliente():
     data = request.json or {}
     nuevo = Cliente(
@@ -247,33 +216,30 @@ def crear_cliente():
         apellido=data["apellido"],
         rut=data["rut"],
         email=data.get("email", ""),
+        direccion=data.get("direccion", ""),          # <— nuevo (si no lo estabas guardando)
+        estado_laboral=data.get("estado_laboral"),    # <— nuevo
+        sexo=(data.get("sexo") or "").upper() or None,# <— nuevo ('M','F','O')
         estado="activo",
     )
     db.session.add(nuevo)
     db.session.commit()
     return jsonify({"msg": "cliente creado", "cliente_id": nuevo.cliente_id}), 201
 
-
 # -------------------- MEMBRESÍAS --------------------
-
 @bp.get("/membresias")
+@login_required
 def get_membresias():
     rows = Membresia.query.all()
-    return jsonify(
-        [
-            {
-                "membresia_id": m.membresia_id,
-                "nombre": m.nombre,
-                "descripcion": m.descripcion,
-                "precio": float(m.precio),
-                "duracion_dias": m.duracion_dias,
-            }
-            for m in rows
-        ]
-    )
-
+    return jsonify([{
+        "membresia_id": m.membresia_id,
+        "nombre": m.nombre,
+        "descripcion": m.descripcion,
+        "precio": float(m.precio),
+        "duracion_dias": m.duracion_dias,
+    } for m in rows])
 
 @bp.post("/membresias")
+@roles_required("admin")
 def crear_membresia():
     data = request.json or {}
     nueva = Membresia(
@@ -286,89 +252,63 @@ def crear_membresia():
     db.session.commit()
     return jsonify({"msg": "membresía creada", "membresia_id": nueva.membresia_id}), 201
 
-
 # -------------------- MEMBRESÍA ACTIVA --------------------
-
 @bp.get("/clientes/<int:cliente_id>/membresias/activa")
+@login_required
 def membresia_activa(cliente_id):
     hoy = date.today()
-    cm = (
-        ClienteMembresia.query.filter_by(cliente_id=cliente_id, estado="activa")
-        .order_by(ClienteMembresia.fecha_fin.desc())
-        .first()
-    )
+    cm = (ClienteMembresia.query
+          .filter_by(cliente_id=cliente_id, estado="activa")
+          .order_by(ClienteMembresia.fecha_fin.desc())
+          .first())
     if not cm:
         return jsonify({"estado": "sin_membresia"}), 200
-
     dias_rest = (cm.fecha_fin - hoy).days
     estado = "activa" if dias_rest >= 0 else "vencida"
-
-    return jsonify(
-        {
-            "nombre_plan": cm.membresia.nombre,
-            "precio": float(cm.membresia.precio),
-            "fecha_inicio": str(cm.fecha_inicio),
-            "fecha_fin": str(cm.fecha_fin),
-            "dias_restantes": dias_rest,
-            "estado": estado,
-        }
-    )
-
+    return jsonify({
+        "nombre_plan": cm.membresia.nombre,
+        "precio": float(cm.membresia.precio),
+        "fecha_inicio": str(cm.fecha_inicio),
+        "fecha_fin": str(cm.fecha_fin),
+        "dias_restantes": dias_rest,
+        "estado": estado,
+    })
 
 # -------------------- PAGOS (caja del día) --------------------
 @bp.get("/pagos/hoy")
+@login_required
 def pagos_hoy():
     hoy = date.today()
-
     if _is_postgres(db.session):
         tz_expr = func.timezone("America/Santiago", Pago.fecha_pago)
         fecha_local = cast(tz_expr, Date)
         hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
-        rows = (
-            db.session.query(
-                Pago.pago_id,
-                Pago.monto,
-                Pago.metodo_pago,
-                hora_local,
-                Cliente.nombre,
-                Cliente.apellido,
-                Cliente.rut,
-            )
-            .join(Cliente)
-            .filter(fecha_local == hoy)
-            .order_by(hora_local.asc())
-            .all()
-        )
+        rows = (db.session.query(
+                    Pago.pago_id, Pago.monto, Pago.metodo_pago, hora_local,
+                    Cliente.nombre, Cliente.apellido, Cliente.rut)
+                .join(Cliente)
+                .filter(fecha_local == hoy)
+                .order_by(hora_local.asc())
+                .all())
     else:
-        rows = (
-            db.session.query(
-                Pago.pago_id,
-                Pago.monto,
-                Pago.metodo_pago,
-                func.strftime("%H:%M", Pago.fecha_pago).label("hora"),
-                Cliente.nombre,
-                Cliente.apellido,
-                Cliente.rut,
-            )
-            .join(Cliente)
-            .filter(func.date(Pago.fecha_pago) == hoy)
-            .order_by(Pago.fecha_pago.asc())
-            .all()
-        )
+        rows = (db.session.query(
+                    Pago.pago_id, Pago.monto, Pago.metodo_pago,
+                    func.strftime("%H:%M", Pago.fecha_pago).label("hora"),
+                    Cliente.nombre, Cliente.apellido, Cliente.rut)
+                .join(Cliente)
+                .filter(func.date(Pago.fecha_pago) == hoy)
+                .order_by(Pago.fecha_pago.asc())
+                .all())
 
-    data = []
-    for p_id, monto, metodo, hora_txt, nombre, apellido, rut in rows:
-        data.append(
-            {
-                "pago_id": p_id,
-                "monto": float(monto or 0),
-                "metodo_pago": metodo,
-                "hora": hora_txt or "",
-                "nombre": nombre,
-                "apellido": apellido,
-                "rut": rut,
-            }
-        )
+    data = [{
+        "pago_id": p_id,
+        "monto": float(monto or 0),
+        "metodo_pago": metodo,
+        "hora": hora_txt or "",
+        "nombre": nombre,
+        "apellido": apellido,
+        "rut": rut,
+    } for p_id, monto, metodo, hora_txt, nombre, apellido, rut in rows]
 
     resumen = {
         "total_general": sum(p["monto"] for p in data),
@@ -376,13 +316,11 @@ def pagos_hoy():
         "total_tarjeta": sum(p["monto"] for p in data if (p["metodo_pago"] or "").lower() == "tarjeta"),
         "total_transferencia": sum(p["monto"] for p in data if (p["metodo_pago"] or "").lower() == "transferencia"),
     }
-
     return jsonify({"pagos": data, "resumen": resumen})
 
-
 # ---------- ASIGNAR / RENOVAR + PAGO ----------
-
 @bp.post("/clientes/<int:cliente_id>/pagos/pagar_y_renovar")
+@roles_required("cashier", "admin")
 def pagar_y_renovar(cliente_id):
     payload = request.json or {}
     monto = _decimal(payload.get("monto"))
@@ -393,12 +331,10 @@ def pagar_y_renovar(cliente_id):
     if not cliente:
         return jsonify({"error": "cliente no existe"}), 404
 
-    # Evitar pagos duplicados con membresía vigente
-    activa = (
-        ClienteMembresia.query
-        .filter(ClienteMembresia.cliente_id == cliente_id, ClienteMembresia.estado == "activa")
-        .first()
-    )
+    activa = (ClienteMembresia.query
+              .filter(ClienteMembresia.cliente_id == cliente_id,
+                      ClienteMembresia.estado == "activa")
+              .first())
     if activa and activa.fecha_fin >= hoy:
         return jsonify({
             "error": "membresia_activa",
@@ -431,9 +367,7 @@ def pagar_y_renovar(cliente_id):
     db.session.add(cm)
     db.session.flush()
 
-    CHILE_TZ = ZoneInfo("America/Santiago")
     fecha_pago_local = datetime.now(CHILE_TZ)
-
     pago = Pago(
         cliente_id=cliente_id,
         cliente_membresia_id=cm.cliente_membresia_id,
@@ -463,19 +397,62 @@ def pagar_y_renovar(cliente_id):
         }
     }), 201
 
-
 # -------------------- ASISTENCIAS --------------------
-
 @bp.post("/asistencias")
+@roles_required("cashier", "admin")
 def marcar_asistencia():
-    data = request.json or {}
-    cliente_id = int(data["cliente_id"])
-    tipo = (data.get("tipo") or "entrada").lower()
+    """
+    Registra ENTRADA o SALIDA del cliente.
 
-    if tipo == "entrada":
-        hoy = date.today()
+    400 -> body inválido
+    403 -> sin membresía activa para ENTRADA
+    404 -> cliente no existe
+    409 -> ENTRADA duplicada en el día
+    201 -> ok
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        print("[/asistencias] payload recibido:", data)
+    except Exception:
+        pass
+
+    # Acepta cliente_id o clienteId
+    raw_id = data.get("cliente_id", data.get("clienteId"))
+    try:
+        cliente_id = int(str(raw_id).strip())
+    except Exception:
+        return jsonify({
+            "error": "bad_request",
+            "detail": "cliente_id inválido o ausente",
+            "echo": data,
+        }), 400
+
+    tipo = (data.get("tipo") or "entrada").lower().strip()
+    if tipo not in ("entrada", "salida"):
+        return jsonify({"error": "bad_request", "detail": "tipo debe ser 'entrada' o 'salida'"}), 400
+
+    cliente = Cliente.query.get(cliente_id)
+    if not cliente:
+        return jsonify({"error": "not_found", "detail": "cliente no existe"}), 404
+
+    hoy = date.today()
+
+    # ¿Ya registró ENTRADA hoy?
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
+        fecha_local = cast(tz_expr, Date)
         existente = (
-            db.session.query(Asistencia)
+            db.session.query(Asistencia.asistencia_id)
+            .filter(
+                Asistencia.cliente_id == cliente_id,
+                fecha_local == hoy,
+                Asistencia.tipo == "entrada",
+            )
+            .first()
+        )
+    else:
+        existente = (
+            db.session.query(Asistencia.asistencia_id)
             .filter(
                 Asistencia.cliente_id == cliente_id,
                 func.date(Asistencia.fecha_hora) == hoy,
@@ -483,39 +460,38 @@ def marcar_asistencia():
             )
             .first()
         )
-        if existente:
-            return (
-                jsonify(
-                    {
-                        "error": "entrada_duplicada",
-                        "detalle": "Este cliente ya tiene una ENTRADA registrada hoy.",
-                        "ultima_hora": existente.fecha_hora.strftime("%H:%M"),
-                    }
-                ),
-                409,
-            )
 
-        cm = (
-            ClienteMembresia.query.filter_by(cliente_id=cliente_id, estado="activa")
+    if tipo == "entrada":
+        if existente:
+            return jsonify({
+                "error": "entrada_duplicada",
+                "detalle": "Este cliente ya tiene una ENTRADA registrada hoy.",
+            }), 409
+
+        # Exigir membresía activa para ENTRADA
+        cm_activa = (
+            ClienteMembresia.query
+            .filter(
+                ClienteMembresia.cliente_id == cliente_id,
+                ClienteMembresia.estado == "activa"
+            )
             .order_by(ClienteMembresia.fecha_fin.desc())
             .first()
         )
-        if not cm or cm.fecha_fin < hoy:
+        if not cm_activa or cm_activa.fecha_fin < hoy:
             return jsonify({"error": "sin_membresia_activa"}), 403
 
-    a = Asistencia(cliente_id=cliente_id, tipo=tipo)
+    a = Asistencia(cliente_id=cliente_id, tipo=tipo)  # usa default ahora_chile()
     db.session.add(a)
     db.session.commit()
-    return jsonify({"msg": "asistencia registrada"}), 201
 
-
-def _is_postgres(session) -> bool:
-    eng: Engine = session.get_bind()
-    return eng.dialect.name == "postgresql"
+    return jsonify({"msg": "asistencia registrada", "asistencia_id": a.asistencia_id}), 201
 
 
 @bp.get("/asistencias/hoy")
+@login_required
 def asistencias_hoy():
+    """Lista ENTRADAS del día, con hora local CL."""
     hoy = date.today()
     if _is_postgres(db.session):
         tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
@@ -553,33 +529,117 @@ def asistencias_hoy():
 
     data = [
         {
-            "asistencia_id": a.asistencia_id,
-            "nombre": a.nombre,
-            "apellido": a.apellido,
-            "rut": a.rut,
-            "cliente_id": a.cliente_id,
-            "hora": getattr(a, "hora", None) or "",
+            "asistencia_id": r.asistencia_id,
+            "nombre": r.nombre,
+            "apellido": r.apellido,
+            "rut": r.rut,
+            "cliente_id": r.cliente_id,
+            "hora": getattr(r, "hora", "") or "",
         }
-        for a in rows
+        for r in rows
     ]
     return jsonify(data)
 
-
-# --------- Entradas por rango (JSON) ---------------
-
 @bp.get("/asistencias/rango")
+@login_required
 def asistencias_rango():
     """
-    ?from=YYYY-MM-DD&to=YYYY-MM-DD
-    Devuelve SOLO 'entrada' entre esas fechas (inclusive), con fecha y hora local CL.
+    Lista asistencias (entradas/salidas) en un rango de fechas.
+    Recibe query params:
+      - from (YYYY-MM-DD)
+      - to   (YYYY-MM-DD)
+    Si no se envían fechas, usa los últimos 30 días.
     """
     d_from = _parse_date(request.args.get("from"))
     d_to = _parse_date(request.args.get("to"))
 
+    # Si no hay fechas -> últimos 30 días
     if not d_from and not d_to:
         d_to = date.today()
         d_from = d_to - timedelta(days=30)
+    if not d_from:
+        d_from = d_to
+    if not d_to:
+        d_to = d_from
 
+    if _is_postgres(db.session):
+        # Fecha y hora local Chile
+        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
+        fecha_local = cast(tz_expr, Date).label("fecha")
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
+
+        rows = (
+            db.session.query(
+                Asistencia.asistencia_id,
+                Cliente.cliente_id,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                fecha_local,
+                hora_local,
+                Asistencia.tipo,
+            )
+            .join(Cliente)
+            .filter(fecha_local >= d_from, fecha_local <= d_to)
+            .order_by(fecha_local.desc(), hora_local.desc())
+            .all()
+        )
+    else:
+        # SQLite / otros
+        rows = (
+            db.session.query(
+                Asistencia.asistencia_id,
+                Cliente.cliente_id,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                func.date(Asistencia.fecha_hora).label("fecha"),
+                func.strftime("%H:%M", Asistencia.fecha_hora).label("hora"),
+                Asistencia.tipo,
+            )
+            .join(Cliente)
+            .filter(func.date(Asistencia.fecha_hora) >= d_from,
+                    func.date(Asistencia.fecha_hora) <= d_to)
+            .order_by(Asistencia.fecha_hora.desc())
+            .all()
+        )
+
+    data = [
+        {
+            "asistencia_id": r.asistencia_id,
+            "cliente_id": r.cliente_id,
+            "nombre": r.nombre,
+            "apellido": r.apellido,
+            "rut": r.rut,
+            "fecha": str(getattr(r, "fecha", "")),
+            "hora": getattr(r, "hora", "") or "",
+            "tipo": r.tipo,
+        }
+        for r in rows
+    ]
+
+    # Igual que /asistencias/hoy: devolvemos una lista simple
+    return jsonify(data)
+
+# ----------------- Asistencias por rango (Excel) -----------------
+@bp.get("/asistencias/rango/excel")
+@roles_required("cashier", "admin")  # o solo "admin" si quieres
+def asistencias_rango_excel():
+    """
+    Exporta a Excel las asistencias (normalmente ENTRADA) en un rango de fechas.
+
+    Query params:
+      - desde (YYYY-MM-DD)
+      - hasta (YYYY-MM-DD)
+    Si no se envían, usa los últimos 30 días.
+    """
+    d_from = _parse_date(request.args.get("desde"))
+    d_to = _parse_date(request.args.get("hasta"))
+
+    # Si no hay fechas -> últimos 30 días
+    if not d_from and not d_to:
+        d_to = date.today()
+        d_from = d_to - timedelta(days=30)
     if not d_from:
         d_from = d_to
     if not d_to:
@@ -587,71 +647,80 @@ def asistencias_rango():
 
     if _is_postgres(db.session):
         tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
-        fecha_loc = cast(tz_expr, Date).label("fecha")
-        hora_loc = func.to_char(tz_expr, "HH24:MI").label("hora")
+        fecha_local = cast(tz_expr, Date).label("fecha")
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
+
         rows = (
             db.session.query(
                 Asistencia.asistencia_id,
-                Cliente.nombre, Cliente.apellido, Cliente.rut, Cliente.cliente_id,
-                fecha_loc, hora_loc
+                Cliente.cliente_id,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                fecha_local,
+                hora_local,
+                Asistencia.tipo,
             )
             .join(Cliente)
-            .filter(Asistencia.tipo == "entrada")
-            .filter(fecha_loc >= d_from, fecha_loc <= d_to)
-            .order_by(fecha_loc.asc(), hora_loc.asc())
+            .filter(fecha_local >= d_from, fecha_local <= d_to)
+            .filter(Asistencia.tipo == "entrada")  # solo entradas
+            .order_by(fecha_local.desc(), hora_local.desc())
             .all()
         )
-        data = [
-            {
-                "asistencia_id": r.asistencia_id,
-                "cliente_id": r.cliente_id,
-                "nombre": r.nombre,
-                "apellido": r.apellido,
-                "rut": r.rut,
-                "fecha": str(r.fecha),
-                "hora": r.hora,
-            } for r in rows
-        ]
     else:
         rows = (
             db.session.query(
                 Asistencia.asistencia_id,
-                Cliente.nombre, Cliente.apellido, Cliente.rut, Cliente.cliente_id,
+                Cliente.cliente_id,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
                 func.date(Asistencia.fecha_hora).label("fecha"),
                 func.strftime("%H:%M", Asistencia.fecha_hora).label("hora"),
+                Asistencia.tipo,
             )
             .join(Cliente)
-            .filter(Asistencia.tipo == "entrada")
             .filter(func.date(Asistencia.fecha_hora) >= d_from,
                     func.date(Asistencia.fecha_hora) <= d_to)
-            .order_by(func.date(Asistencia.fecha_hora).asc(),
-                      Asistencia.fecha_hora.asc())
+            .filter(Asistencia.tipo == "entrada")
+            .order_by(Asistencia.fecha_hora.desc())
             .all()
         )
-        data = [
-            {
-                "asistencia_id": r.asistencia_id,
-                "cliente_id": r.cliente_id,
-                "nombre": r.nombre,
-                "apellido": r.apellido,
-                "rut": r.rut,
-                "fecha": r.fecha,
-                "hora": r.hora,
-            } for r in rows
-        ]
 
-    return jsonify({"from": str(d_from), "to": str(d_to), "items": data})
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Asistencias"
+
+    headers = ["Fecha", "Hora", "Cliente", "RUT", "ID Cliente", "Tipo"]
+    ws.append(headers)
+
+    for r in rows:
+        ws.append([
+            str(getattr(r, "fecha", "")),
+            getattr(r, "hora", "") or "",
+            f"{r.nombre} {r.apellido}",
+            r.rut,
+            r.cliente_id,
+            r.tipo,
+        ])
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = f"asistencias_{d_from.strftime('%Y%m%d')}_{d_to.strftime('%Y%m%d')}.xlsx"
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 # ----------------- Excel de pagos (orden DESC) -----------------
-
 @bp.get("/pagos/export_excel")
+@roles_required("admin")  # solo admin descarga Excel de pagos
 def pagos_export_excel():
-    """
-    Descarga un Excel con pagos ordenados del más nuevo al más antiguo.
-    Filtros opcionales: ?from=YYYY-MM-DD&to=YYYY-MM-DD
-    Si no envías nada, toma últimos 30 días.
-    """
     d_from = _parse_date(request.args.get("from"))
     d_to = _parse_date(request.args.get("to"))
 
@@ -663,18 +732,10 @@ def pagos_export_excel():
     if not d_to:
         d_to = d_from
 
-    q = (
-        db.session.query(
-            Pago.pago_id,
-            Pago.monto,
-            Pago.metodo_pago,
-            Pago.fecha_pago,
-            Cliente.nombre,
-            Cliente.apellido,
-            Cliente.rut,
-        )
-        .join(Cliente)
-    )
+    q = (db.session.query(
+            Pago.pago_id, Pago.monto, Pago.metodo_pago, Pago.fecha_pago,
+            Cliente.nombre, Cliente.apellido, Cliente.rut)
+         .join(Cliente))
 
     if _is_postgres(db.session):
         tz_expr = func.timezone("America/Santiago", Pago.fecha_pago)
@@ -689,7 +750,6 @@ def pagos_export_excel():
     wb = Workbook()
     ws = wb.active
     ws.title = "Pagos"
-
     headers = ["Fecha", "Hora", "Cliente", "RUT", "Método", "Monto"]
     ws.append(headers)
 
@@ -702,11 +762,9 @@ def pagos_export_excel():
         dt_local = _to_chile_dt(fecha_pago)
         f = dt_local.strftime("%Y-%m-%d")
         h = dt_local.strftime("%H:%M")
-
         total_general += _decimal(monto)
         if metodo in por_metodo:
             por_metodo[metodo] += _decimal(monto)
-
         ws.append([f, h, f"{nombre} {apellido}", rut, metodo, float(monto)])
 
     ws.append([])
@@ -718,7 +776,6 @@ def pagos_export_excel():
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
-
     filename = f"pagos_{d_from.strftime('%Y%m%d')}_{d_to.strftime('%Y%m%d')}.xlsx"
     return send_file(
         bio,
@@ -727,46 +784,32 @@ def pagos_export_excel():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-
 # -------------------- VENCIMIENTOS ≤ 3 días --------------------
-
 @bp.get("/vencimientos_proximos")
+@login_required
 def vencimientos_proximos():
     hoy = date.today()
     limite = hoy + timedelta(days=3)
-    rows = (
-        db.session.query(
-            ClienteMembresia.cliente_membresia_id,
-            ClienteMembresia.fecha_fin,
-            Cliente.nombre,
-            Cliente.apellido,
-            Cliente.rut,
-            Membresia.nombre.label("nombre_plan"),
-        )
-        .join(Cliente, Cliente.cliente_id == ClienteMembresia.cliente_id)
-        .join(Membresia, Membresia.membresia_id == ClienteMembresia.membresia_id)
-        .filter(
-            ClienteMembresia.estado == "activa",
-            func.date(ClienteMembresia.fecha_fin) >= hoy,
-            func.date(ClienteMembresia.fecha_fin) <= limite,
-        )
-        .order_by(ClienteMembresia.fecha_fin.asc())
-        .all()
-    )
+    rows = (db.session.query(
+                ClienteMembresia.cliente_membresia_id, ClienteMembresia.fecha_fin,
+                Cliente.nombre, Cliente.apellido, Cliente.rut,
+                Membresia.nombre.label("nombre_plan"))
+            .join(Cliente, Cliente.cliente_id == ClienteMembresia.cliente_id)
+            .join(Membresia, Membresia.membresia_id == ClienteMembresia.membresia_id)
+            .filter(ClienteMembresia.estado == "activa",
+                    func.date(ClienteMembresia.fecha_fin) >= hoy,
+                    func.date(ClienteMembresia.fecha_fin) <= limite)
+            .order_by(ClienteMembresia.fecha_fin.asc())
+            .all())
 
-    data = []
-    for cm_id, fecha_fin, nombre, apellido, rut, nombre_plan in rows:
-        dias_rest = (fecha_fin - hoy).days
-        data.append(
-            {
-                "cliente_membresia_id": cm_id,
-                "nombre": nombre,
-                "apellido": apellido,
-                "rut": rut,
-                "nombre_plan": nombre_plan,
-                "fecha_fin": str(fecha_fin),
-                "dias_restantes": dias_rest,
-            }
-        )
+    data = [{
+        "cliente_membresia_id": cm_id,
+        "nombre": nombre,
+        "apellido": apellido,
+        "rut": rut,
+        "nombre_plan": nombre_plan,
+        "fecha_fin": str(fecha_fin),
+        "dias_restantes": (fecha_fin - hoy).days,
+    } for cm_id, fecha_fin, nombre, apellido, rut, nombre_plan in rows]
 
     return jsonify({"vencimientos": data})
