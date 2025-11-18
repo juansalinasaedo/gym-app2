@@ -1,0 +1,26 @@
+# Node & Vite
+node_modules/
+dist/
+.vite/
+.env
+.env.*
+!.env.example
+
+# Python / Flask
+__pycache__/
+*.pyc
+instance/
+*.db
+.env
+venv/
+.env.development
+.env.production
+
+# OS files
+.DS_Store
+Thumbs.db
+
+/gym-app/.venv
+/gym-app/instance
+/gym-app/gimnasio.sql
+/gym-app/*.db
