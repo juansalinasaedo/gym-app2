@@ -1,5 +1,5 @@
+import os
 from app import create_app, db
-from app.models import *  # importa los modelos para que SQLAlchemy conozca las tablas
 from flask.cli import load_dotenv
 
 load_dotenv()
@@ -10,4 +10,5 @@ with app.app_context():
     db.create_all()
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
