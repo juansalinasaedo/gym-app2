@@ -4,12 +4,17 @@ from app.models import User
 
 app = create_app()
 with app.app_context():
-    email = "admin@gym.local"
-    u = User.query.filter_by(email=email).first()
-    if not u:
-        u = User(name="Administrador", email=email, role="admin", enabled=True)
-        u.set_password("admin123")  # cámbialo luego
-        db.session.add(u)
+    from .models import User
+    db.create_all()
+
+    # Si no existe ningún usuario, crea admin por defecto
+    if not User.query.first():
+        admin = User(
+            email="juan.salinas.aedo@gmail.com",
+            role="Megamanx4#"
+        )
+        admin.set_password("123456")
+        db.session.add(admin)
         db.session.commit()
         print("Admin creado:", email, "pass=admin123")
     else:
