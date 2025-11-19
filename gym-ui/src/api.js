@@ -183,7 +183,10 @@ export async function apiExportPagosExcel(desde, hasta) {
   if (desde) params.append("desde", desde);
   if (hasta) params.append("hasta", hasta);
 
-  const res = await fetch(`/api/reportes/pagos_excel?${params.toString()}`, {
+  // 👉 ahora usamos API_BASE para ir al backend correcto
+  const url = `${API_BASE}/api/reportes/pagos_excel?${params.toString()}`;
+
+  const res = await fetch(url, {
     credentials: "include",
   });
 
