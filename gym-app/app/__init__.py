@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from os import getenv
 from dotenv import load_dotenv
+from sqlalchemy.exc import IntegrityError
 
 db = SQLAlchemy()
 
@@ -40,25 +41,43 @@ def create_app():
     app.register_blueprint(auth_bp)
 
     from .routes import bp as api_bp
-    app.register_blueprint(api_bp, url_prefix="/api")
+    # OJO: routes.py ya tiene url_prefix="/api", así que aquí NO lo repetimos
+    app.register_blueprint(api_bp)
 
     # Crear tablas y sembrar admin si la BD está vacía
     with app.app_context():
         from . import models
-        from .models import User  # ajusta si tu modelo se llama distinto
+        from .models import User  # ajusta el nombre si tu modelo se llama distinto
 
         db.create_all()
 
-        # AUTOCREA un admin si no hay usuarios
-        if not User.query.first():
-            admin = User(
-                email="admin@gym.local",
-                role="admin",
-            )
-            # ajusta el nombre del método según tu modelo
-            admin.set_password("123456")
-            db.session.add(admin)
-            db.session.commit()
+        try:
+            # Solo si no hay ningún usuario, creamos el admin
+            if not User.query.first():
+                admin_email = getenv("ADMIN_EMAIL", "admin@gym.local")
+                admin_password = getenv("ADMIN_PASSWORD", "123456")
+
+                admin = User(
+                    name="Administrador",        # 👈 aquí estaba el problema: antes era None
+                    email=admin_email,
+                    role="admin",
+                    enabled=True,               # por si tu modelo tiene este campo NOT NULL o con default
+                )
+
+                # asumimos que tu modelo tiene set_password (por passlib)
+                if hasattr(admin, "set_password"):
+                    admin.set_password(admin_password)
+                else:
+                    # Si no tiene set_password, ya tendrías tú otro mecanismo en tu modelo;
+                    # deja esta parte como la uses normalmente.
+                    admin.password = admin_password  # ajusta si es necesario
+
+                db.session.add(admin)
+                db.session.commit()
+        except IntegrityError:
+            # Si por alguna razón se produce una condición de carrera o ya existe un admin,
+            # evitamos que la app reviente en el arranque
+            db.session.rollback()
 
     # Helpers de protección
     def login_required(fn):
