@@ -1,14 +1,13 @@
+# gym-app/run.py
 import os
-from app import create_app, db
-from flask.cli import load_dotenv
-
-load_dotenv()
+from app import create_app
 
 app = create_app()
 
-with app.app_context():
-    db.create_all()
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    # Render expone el puerto en la variable de entorno PORT
+    port = int(os.getenv("PORT", 5000))
+    # En producción no necesitamos debug
+    debug = os.getenv("FLASK_ENV", "development") != "production"
+
+    app.run(host="0.0.0.0", port=port, debug=debug)

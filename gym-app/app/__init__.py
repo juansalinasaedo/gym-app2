@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 db = SQLAlchemy()
 
 def create_app():
-    # En local lee .env; en Render simplemente no hará nada
+    # En local lee .env; en Render simplemente no hace nada si no existe
     load_dotenv()
 
     app = Flask(__name__)
@@ -18,14 +18,11 @@ def create_app():
     app.config["SQLALCHEMY_DATABASE_URI"] = getenv("DATABASE_URL", "sqlite:///gym.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-    # Cookies de sesión (para que funcionen entre dominios)
-    app.config["SESSION_COOKIE_SAMESITE"] = getenv("SESSION_COOKIE_SAMESITE", "Lax")
-    # En Render pondremos True, en local puede ser False
-    app.config["SESSION_COOKIE_SECURE"] = getenv("SESSION_COOKIE_SECURE", "False") == "True"
+    # Cookies de sesión (importante para login desde otro dominio)
+    app.config["SESSION_COOKIE_SAMESITE"] = getenv("SESSION_COOKIE_SAMESITE", "None")
+    app.config["SESSION_COOKIE_SECURE"] = getenv("SESSION_COOKIE_SECURE", "True") == "True"
 
-    # 🟢 CORS: orígenes definidos por variable
-    # Ejemplo en local (por defecto): http://localhost:5173
-    # En Render: agregas tu URL de frontend en ALLOWED_ORIGINS
+    # Orígenes permitidos para CORS
     default_origins = "http://127.0.0.1:5173,http://localhost:5173"
     origins_env = getenv("ALLOWED_ORIGINS", default_origins)
     origins = [o.strip() for o in origins_env.split(",") if o.strip()]
@@ -45,9 +42,23 @@ def create_app():
     from .routes import bp as api_bp
     app.register_blueprint(api_bp, url_prefix="/api")
 
+    # Crear tablas y sembrar admin si la BD está vacía
     with app.app_context():
-        from . import models  # registra User y demás
-        db.create_all()      # crea tablas en la BD apuntada por DATABASE_URL
+        from . import models
+        from .models import User  # ajusta si tu modelo se llama distinto
+
+        db.create_all()
+
+        # AUTOCREA un admin si no hay usuarios
+        if not User.query.first():
+            admin = User(
+                email="admin@gym.local",
+                role="admin",
+            )
+            # ajusta el nombre del método según tu modelo
+            admin.set_password("123456")
+            db.session.add(admin)
+            db.session.commit()
 
     # Helpers de protección
     def login_required(fn):
@@ -73,4 +84,5 @@ def create_app():
 
     app.login_required = login_required
     app.roles_required = roles_required
+
     return app
