@@ -20,7 +20,9 @@ venv/
 .DS_Store
 Thumbs.db
 
-/gym-app/.venv
-/gym-app/instance
-/gym-app/gimnasio.sql
-/gym-app/*.db
+# entornos y BD locales
+.venv/
+gym-app/.venv/
+gym-app/instance/
+gym-app/gym.db
+gym-app/*.sqlite

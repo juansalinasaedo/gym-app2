@@ -1,291 +1,271 @@
-# 🏋️‍♂️ Sistema de Gestión de Gimnasio — FullStack (Flask + PostgreSQL + React)
-
-Este proyecto es un **sistema integral de administración de gimnasio**, diseñado para gestionar:
-
-- Registro de clientes
-- Membresías y renovaciones
-- Pagos y reportes contables
-- Control de asistencias (entradas/salidas)
-- Alertas de vencimiento
-- Descarga de reportes en Excel
-- Accesos según roles (Admin, Cajero)
-
-Sistema optimizado para uso en un gimnasio real, con flujos rápidos y seguros.
+# 🏋️‍♂️ Gym App 2 — Sistema de Gestión para Gimnasios  
+Sistema completo para gestión de clientes, asistencias, planes, usuarios y flujo administrativo de gimnasios.  
+Arquitectura basada en **Flask (Python)** para el backend y **React + Vite** para el frontend.
 
 ---
 
-## 🚀 Tecnologías utilizadas
-
-### **Backend**
-- Python 3 / Flask
-- Flask-SQLAlchemy
-- Flask-CORS
-- PostgreSQL
-- openpyxl (reportes Excel)
-- Werkzeug / passlib
-
-### **Frontend**
-- React + Vite
-- TailwindCSS
-- Hooks personalizados para API
-- Componentes optimizados para uso rápido
-
----
-
-## 👥 Perfiles del sistema
-
-### 🛠 **Administrador**
-Tiene acceso total:
-- CRUD clientes
-- CRUD membresías
-- Reportes Excel (pagos, asistencias)
-- Gestión de asistencias
-- Dashboard completo
-- Configuraciones internas
-
-### 💰 **Cajero**
-Acceso restringido:
-- Marcar entradas
-- Registrar pagos
-- Renovación de membresías
-- Ver asistencias del día
-- Buscar asistencias por rango
-- NO PUEDE: crear usuarios, crear membresías, modificar configuraciones administrativas
-
-La autorización de módulos se controla desde:
-
-frontend → CashierPanel.jsx
-frontend → App.jsx
-backend  → roles_required()
+## 📑 **Índice**
+- [Descripción General](#-descripción-general)
+- [Tecnologías Utilizadas](#-tecnologías-utilizadas)
+- [Arquitectura del Proyecto](#-arquitectura-del-proyecto)
+- [Características Principales](#-características-principales)
+- [Roles y Permisos](#-roles-y-permisos)
+- [Instalación — Backend (Flask)](#-instalación--backend-flask)
+- [Instalación — Frontend (React + Vite)](#-instalación--frontend-react--vite)
+- [Credenciales Iniciales](#-credenciales-iniciales)
+- [Despliegue en Render.com](#-despliegue-en-rendercom)
+- [API — Estructura General](#-api--estructura-general)
+- [Capturas (Opcional)](#-capturas-opcional)
+- [Contribuir](#-contribuir)
+- [Licencia](#-licencia)
 
 ---
 
-## 📂 Estructura del proyecto
+## 🚀 **Descripción General**
+Este proyecto es una solución integral para administrar un gimnasio real.  
+Permite manejar:
 
+- Registro de clientes  
+- Asistencias por rango de fechas  
+- Venta de planes  
+- Gestión de usuarios internos  
+- Control de caja (rol cajero)  
+- Panel administrativo (rol admin)  
 
-gym-app/
-│── backend/
-│   ├── app/
-│   │   ├── models.py
-│   │   ├── routes.py
-│   │   ├── decorators.py
-│   │   ├── init.py
-│   ├── run.py
-│   ├── requirements.txt
-│   ├── requirements-dev.txt
+Su diseño modular permite adaptarlo fácilmente a distintos gimnasios pequeños o medianos.
+
+---
+
+## 🛠️ **Tecnologías Utilizadas**
+
+### **Backend (Flask)**
+- Python 3.x  
+- Flask  
+- SQLAlchemy  
+- JWT Authentication  
+- SQLite / PostgreSQL  
+- Flask-CORS  
+- Python Dotenv  
+
+### **Frontend (React)**
+- React  
+- Vite  
+- Axios  
+- React Router  
+- Context API para autenticación  
+
+---
+
+## 🧱 **Arquitectura del Proyecto**
+
+gym-app2/
 │
-│── frontend/
-│   ├── src/
-│   │   ├── api.js
-│   │   ├── App.jsx
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── utils/
-│   ├── index.html
-│   ├── package.json
+├── gym-app/ # Backend - Flask API
+│ ├── run.py
+│ ├── seed_admin.py
+│ ├── config/
+│ ├── routes/
+│ ├── models/
+│ ├── controllers/
+│ └── gym.db (si usas SQLite)
 │
-└── README.md
+└── gym-ui/ # Frontend - React + Vite
+├── src/
+├── public/
+├── vite.config.js
+└── index.html
+
 
 ---
 
-# ⚙️ Instalación y ejecución
+## ⭐ **Características Principales**
+- 🔐 **Autenticación con JWT**
+- 👥 **Roles y permisos**
+- 📅 Registro de asistencias
+- 🧾 Gestión de planes
+- 🗄 Gestion de usuarios internos
+- 📲 Interfaz moderna con React
+- 📦 API modular y escalable
 
-## 1️⃣ Clonar repositorio
+---
 
-```bash
-git clone https://github.com/tu-repo/gym-app.git
+## 🧩 **Roles y Permisos**
+
+| Módulo                         | Admin | Cajero |
+|-------------------------------|:-----:|:------:|
+| Ver/editar clientes           | ✔️    | ✔️     |
+| Registrar asistencias        | ✔️    | ✔️     |
+| Ver reportes                 | ✔️    | ✔️     |
+| Administrar usuarios internos | ✔️    | ❌     |
+| Crear/editar planes           | ✔️    | ❌     |
+| Configuraciones avanzadas     | ✔️    | ❌     |
+
+En el backend, esto se controla mediante decoradores como:
+
+```python
+@roles_required("admin")
+@roles_required("admin", "cashier")
+
+En el frontend, mediante lógica:
+
+{user.role === "admin" && <AdminMenu />}
+
+
+⚙️ Instalación — Backend (Flask)
+1. Entrar al directorio
+
 cd gym-app
 
+2. Crear entorno virtual
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
 
-🐍 Backend (Flask)
-2️⃣ Crear entorno virtual
-cd backend
-python -m venv .venv
-
-Activar entorno:
-Windows
-.venv\Scripts\activate
-
-Linux / Mac
-source .venv/bin/activate
-
-
-3️⃣ Instalar dependencias
+3. Instalar dependencias
 pip install -r requirements.txt
 
-Si estás en desarrollo:
-pip install -r requirements-dev.txt
+4. Configurar variables de entorno
 
-
-4️⃣ Configurar variables de entorno
 Crear archivo .env:
-FLASK_DEBUG=1
-DATABASE_URL=postgresql://usuario:password@localhost:5432/gymdb
-SECRET_KEY=un_secreto_seguro
 
+SECRET_KEY=superclave123
+FLASK_ENV=development
+DATABASE_URL=sqlite:///gym.db
 
-5️⃣ Inicializar Base de Datos
-python
->>> from app import db, create_app
->>> app = create_app()
->>> app.app_context().push()
->>> db.create_all()
+5. Inicializar data y usuario admin
+python seed_admin.py
 
-
-6️⃣ Iniciar backend
+6. Ejecutar backend
 python run.py
 
-Por defecto se ejecuta en:
-http://127.0.0.1:5000
 
+API quedará disponible en:
+👉 http://localhost:5000
 
-💻 Frontend (React)
-1️⃣ Instalar dependencias
-cd frontend
+💻 Instalación — Frontend (React + Vite)
+1. Entrar al directorio
+cd gym-ui
+
+2. Instalar dependencias
 npm install
 
+3. Configurar .env
 
-2️⃣ Crear archivo .env
-VITE_API_BASE=http://127.0.0.1:5000
+Crear archivo:
 
+VITE_API_BASE=http://localhost:5000
 
-3️⃣ Ejecutar frontend
+4. Ejecutar desarrollo
 npm run dev
 
+
 Frontend disponible en:
-http://127.0.0.1:5173
+👉 http://localhost:5173
 
+🔑 Credenciales Iniciales
 
-📊 Módulos principales
-✔️ Clientes
+El script seed_admin.py crea:
 
+Usuario admin:
 
-Crear / editar clientes
+Correo: admin@gym.local
 
+Contraseña: 123456
 
-Nuevos campos: dirección, estado laboral, sexo
+Se recomienda cambiar la clave en producción.
 
+🌐 Despliegue en Render.com
+🔷 Backend (Flask)
 
-Validación de RUT único
+Crear Web Service → conectar repo
 
+Directorio raíz: gym-app
 
-✔️ Membresías
+Build command:
 
+pip install -r requirements.txt
 
-Crear planes (admin)
 
+Start command:
 
-Asignación automática con fecha de inicio/fin
+python run.py
 
 
-✔️ Pagos
+Variables de entorno:
 
+FLASK_ENV=production
+SECRET_KEY=clave_super_segura
+DATABASE_URL=postgresql://... (Render te la entrega)
 
-Registrar pagos (cajero)
+🔷 Frontend (React)
 
+Crear Static Site
 
-Renovaciones + pago integrado
+Directorio raíz: gym-ui
 
+Build command:
 
-Dashboard diario
+npm install && npm run build
 
 
-✔️ Asistencias
+Publish directory:
 
+dist
 
-Entrada/salida
 
+Variables:
 
-Prevenir doble entrada por día
+VITE_API_BASE=https://tu-backend.onrender.com
 
+🔌 API — Estructura General
 
-Control por rol: exige membresía activa
+Ejemplos de endpoints:
 
+🔐 Autenticación
+POST /auth/login
 
-✔️ Reportes Excel
+👤 Usuarios
+GET /users/
+POST /users/
 
+🏋️‍♂️ Clientes
+GET /clients/
+POST /clients/
+PUT /clients/{id}
 
-Pagos del período (admin)
+🗓 Asistencias
+POST /assists/range
+GET /assists/{user_id}
 
+🖼 Capturas (Opcional)
 
-Asistencias por rango (admin / cajero)
+Puedes agregar capturas en:
 
+gym-ui/public/screenshots/
 
-Totales por método de pago
 
+Luego integrarlas así:
 
+![Dashboard](./public/screenshots/dashboard.png)
 
-📦 Reportes Excel
-📘 Pagos
-Ruta backend:
-GET /api/pagos/export_excel
+🤝 Contribuir
 
-📙 Asistencias por rango
-Ruta backend:
-GET /api/asistencias/rango/excel
+Si deseas contribuir:
 
-Ambos retornan archivos .xlsx generados con openpyxl.
+Fork
 
-🔐 Seguridad y Roles
-Controlado desde:
-Backend
+Crear branch:
 
+git checkout -b feature/nueva-funcion
 
-login_required
 
+Commit
 
-roles_required("admin")
+Pull Request
 
+📄 Licencia
 
-roles_required("cashier")
+Este proyecto es de uso libre para personalizar y desplegar en gimnasios propios.
 
-
-Frontend
-
-
-Ocultación de módulos según rol en:
-
-
-CashierPanel.jsx
-
-
-App.jsx
-
-
-Sidebar.jsx (si existe)
-
-
-
-
-
-🧪 Tests
-Pendiente por implementar.
-
-🤝 Contribuciones
-Pull requests bienvenidos.
-Contactar al desarrollador para coordinación.
-
-🧑‍💻 Autor
-Juan Francisco Salinas Aedo
-Ingeniero Informático — Talca, Chile
-Desarrollo FullStack / Sistemas de Gestión
-
-🏁 Estado del proyecto
-✔️ Operativo
-✔️ Backend estable
-✔️ Frontend funcional
-⬜ Tests unitarios
-⬜ Modo dark
-⬜ Dashboard analítico ampliado
-
-
-# 📌 **FIN DEL TEXTO DEL README.md — COPIAR SOLO LO QUE ESTÁ DENTRO DEL BLOQUE**
-
----
-
-Si deseas, también puedo agregar:
-
-✅ Badges (versiones, licencias, frameworks)  
-✅ Capturas de pantalla (placeholders)  
-✅ Tabla de contenidos automática  
-✅ Sección “Changelog”  
+MIT License
+Copyright (c) 2025
