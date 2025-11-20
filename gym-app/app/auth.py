@@ -127,6 +127,17 @@ def list_users():
     rows = [_user_to_dict(u) for u in q.all()]
     return jsonify({"items": rows}), 200
 
+@auth_bp.get("/debug/users")
+def debug_users():
+    rows = User.query.all()
+    return jsonify([{
+        "user_id": u.user_id,
+        "name": u.name,
+        "email": u.email,
+        "role": u.role,
+        "enabled": u.enabled
+    } for u in rows]), 200
+
 
 @auth_bp.post("/users")
 def create_user():
