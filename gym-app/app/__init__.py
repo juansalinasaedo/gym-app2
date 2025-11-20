@@ -16,6 +16,18 @@ def create_app():
     app.config["SQLALCHEMY_DATABASE_URI"] = getenv("DATABASE_URL", "sqlite:///gym.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+    # 👇 NUEVO: configuración de cookies según entorno
+    is_production = getenv("FLASK_ENV") == "production" or getenv("RENDER") == "true"
+
+    if is_production:
+        # En Render (HTTPS + dominios distintos)
+        app.config["SESSION_COOKIE_SAMESITE"] = "None"
+        app.config["SESSION_COOKIE_SECURE"] = True
+    else:
+        # En local (HTTP)
+        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+        app.config["SESSION_COOKIE_SECURE"] = False
+
     # ---------- CORS dinámico ----------
     # En Render, pon ALLOWED_ORIGINS = https://gym-app2-1.onrender.com
     # (y opcionalmente también los localhost para desarrollo)
