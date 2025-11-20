@@ -1,45 +1,95 @@
 // src/auth/AuthProvider.jsx
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { apiLogin, apiLogout, apiMe } from "../api";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 const AuthContext = createContext(null);
-export function useAuth() { return useContext(AuthContext); }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(false); // cuando ya sabemos si hay sesión o no
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await apiMe();
-        setUser(r.user || null);
-      } catch {
-        setUser(null);
-      } finally {
-        setReady(true);
-      }
-    })();
+  // Consulta inicial al backend: /auth/me
+  const fetchMe = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      setUser(data.user || null);
+    } catch (err) {
+      console.error("Error al verificar sesión", err);
+      setUser(null);
+    } finally {
+      setReady(true);
+    }
   }, []);
 
+  useEffect(() => {
+    fetchMe();
+  }, [fetchMe]);
+
+  // Login: usa cookie de sesión de Flask
   const login = async (email, password) => {
-    const r = await apiLogin(email, password);
-    setUser(r.user);
-    return r.user;
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      // backend devuelve { error: "invalid_credentials" }
+      const msg = data?.error || "Error al iniciar sesión";
+      throw new Error(msg);
+    }
+
+    setUser(data.user || null);
+    setReady(true);
+    return data.user;
   };
 
   const logout = async () => {
-    try { await apiLogout(); } catch {}
-    setUser(null);
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.error("Error al cerrar sesión", err);
+    } finally {
+      setUser(null);
+      setReady(true);
+    }
   };
 
   const isAdmin = !!user && user.role === "admin";
-  const isCashier = !!user && user.role === "cashier";
-  const hasRole = (roles = []) => !!user && (roles.length === 0 || roles.includes(user.role));
+
+  const hasRole = (roles = []) => {
+    if (!roles || roles.length === 0) return true;
+    if (!user) return false;
+    return roles.includes(user.role);
+  };
+
+  const value = { user, ready, login, logout, isAdmin, hasRole };
 
   return (
-    <AuthContext.Provider value={{ user, ready, login, logout, isAdmin, isCashier, hasRole }}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 }
+
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within <AuthProvider>");
+  }
+  return ctx;
+};

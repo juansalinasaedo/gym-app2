@@ -2,9 +2,26 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const json = { "Content-Type": "application/json" };
 
+// === NUEVO: leer token guardado en localStorage ===
+function getAuthHeaders() {
+  // Usa la misma key que vas a usar en AuthProvider.jsx
+  const token = localStorage.getItem("authToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // -------- helpers ----------
 async function fetchJson(url, opts = {}) {
-  const res = await fetch(url, { credentials: "include", ...opts });
+  const mergedHeaders = {
+    ...getAuthHeaders(),
+    ...(opts.headers || {}),
+  };
+
+  const res = await fetch(url, {
+    credentials: "include",
+    ...opts,
+    headers: mergedHeaders,
+  });
+
   const ct = res.headers.get("content-type") || "";
 
   if (!res.ok) {
@@ -23,11 +40,18 @@ async function fetchJson(url, opts = {}) {
 }
 
 async function doJson(url, opts = {}) {
+  const mergedHeaders = {
+    ...json,
+    ...getAuthHeaders(),
+    ...(opts.headers || {}),
+  };
+
   const res = await fetch(url, {
-    headers: json,
+    headers: mergedHeaders,
     credentials: "include",
     ...opts,
   });
+
   const ct = res.headers.get("content-type") || "";
 
   if (!res.ok) {
