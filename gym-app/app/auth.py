@@ -249,3 +249,43 @@ def delete_user(user_id: int):
     db.session.delete(u)
     db.session.commit()
     return jsonify({"ok": True}), 200
+
+# ---------- DEBUG / BOOTSTRAP (solo para inicializar) ----------
+
+@auth_bp.get("/debug/bootstrap_admin")
+def debug_bootstrap_admin():
+    """
+    Crea un usuario admin solo si actualmente no hay usuarios.
+    IMPORTANTE: usar solo para inicializar y luego borrar esta ruta.
+    """
+    # ¿Ya hay usuarios?
+    if User.query.count() > 0:
+        return jsonify({"ok": False, "detail": "Ya existen usuarios, no se creó nada."}), 200
+
+    # Puedes cambiar estos valores si quieres
+    email = _normalize_email(request.args.get("email") or "juan.salinas.aedo@gmail.com")
+    password = request.args.get("password") or "Megamanx4#"
+    name = request.args.get("name") or "Admin Principal"
+
+    if len(password) < 8:
+        return jsonify({"ok": False, "error": "weak_password", "detail": "Longitud mínima 8"}), 400
+
+    u = User(
+        name=name,
+        email=email,
+        role="admin",
+        enabled=True,
+    )
+    u.set_password(password)
+    db.session.add(u)
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "msg": "Usuario admin creado",
+        "user": _user_to_dict(u),
+        "login_hint": {
+            "email": email,
+            "password": password
+        }
+    }), 201
