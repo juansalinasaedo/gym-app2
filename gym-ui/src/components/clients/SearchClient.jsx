@@ -1,9 +1,27 @@
 // src/components/clients/SearchClient.jsx
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export default function SearchClient({ clientes, value, onSelect }) {
   const [query, setQuery] = useState("");
   const [showList, setShowList] = useState(false);
+
+  // Ref al contenedor para detectar clicks fuera
+  const containerRef = useRef(null);
+
+  // Cerrar lista al hacer click fuera del componente
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target)
+      ) {
+        setShowList(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const filtered = clientes
     .filter((c) => {
@@ -25,7 +43,7 @@ export default function SearchClient({ clientes, value, onSelect }) {
   };
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <label className="block text-xs mb-1 text-gray-600">
         Buscar cliente (nombre o RUT)
       </label>
@@ -63,6 +81,7 @@ export default function SearchClient({ clientes, value, onSelect }) {
             <li
               key={c.cliente_id}
               onMouseDown={(e) => {
+                // onMouseDown para que no se cierre por el blur del input
                 e.preventDefault();
                 handleSelect(c);
               }}

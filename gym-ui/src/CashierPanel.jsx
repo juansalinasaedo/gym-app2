@@ -107,7 +107,8 @@ export default function CashierPanel() {
       )}
 
       {/* 1) Buscar Cliente */}
-      <Section title="1) Buscar Cliente">
+      <Section title="1) Buscar Cliente"  variant="card" hover={true}
+       subtitle="Ingresa la información del nuevo usuario.">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
           <SearchClient clientes={clientes} value={clienteId} onSelect={setClienteId} />
           <div className="md:col-span-2">
@@ -125,7 +126,7 @@ export default function CashierPanel() {
       </Section>
 
       {/* 2) Registrar Nuevo Cliente */}
-      <Section title="2) Registrar Nuevo Cliente">
+      <Section title="2) Registrar Nuevo Cliente" variant="highlight" hover>
         <CreateClientForm
           onCreate={crearCliente}
           setMsg={setMsg}
@@ -138,22 +139,28 @@ export default function CashierPanel() {
       </Section>
 
       {/* 3) Membresías */}
+      <Section
+        title="3) Membresías"
+        variant="blue"
+        icon="💳"
+        hover={true}
+      >
       <MembershipAssignRenew
         clienteId={clienteId}
         membresias={membresias}
         infoMembresia={info}
         onAfterChange={refreshAfterPayment}
-      />
+      /></Section>
 
       {/* 4) Crear Plan — SOLO ADMIN */}
       {isAdmin && (
-        <Section title="4) Crear Plan (admin)">
+        <Section title="4) Crear Plan (admin)" variant="dark" icon="📊" hover>
           <CreateMembershipForm onCreate={crearMembresia} />
         </Section>
       )}
 
       {/* 5) Entraron hoy */}
-      <TodayEntries items={asistencias} />
+      <Section variant="glass" title="Resumen" hover><TodayEntries items={asistencias} /></Section>
 
       {/* 6) Caja del día */}
       {isAdmin && (
