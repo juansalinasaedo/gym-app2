@@ -134,6 +134,3 @@ CORS_ORIGIN=http://127.0.0.1:5173
 **Juan Francisco Salinas Aedo**  
 Ingeniero Informático  
 LinkedIn: https://www.linkedin.com/in/juan-salinas-aedo-ti/
-
-## 📄 Licencia
-MIT License
