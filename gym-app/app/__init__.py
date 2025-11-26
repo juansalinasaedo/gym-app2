@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from os import getenv
 from dotenv import load_dotenv
+from datetime import timedelta
 
 db = SQLAlchemy()
 
@@ -15,6 +16,7 @@ def create_app():
     app.config["SECRET_KEY"] = getenv("SECRET_KEY", "dev-secret-key")
     app.config["SQLALCHEMY_DATABASE_URI"] = getenv("DATABASE_URL", "sqlite:///gym.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=10)  # por ejemplo 10 min
 
     # 👇 NUEVO: configuración de cookies según entorno
     is_production = getenv("FLASK_ENV") == "production" or getenv("RENDER") == "true"

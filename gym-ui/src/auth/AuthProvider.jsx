@@ -31,6 +31,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // Llamar a /auth/me una sola vez al montar
   useEffect(() => {
     fetchMe();
   }, [fetchMe]);
@@ -43,19 +44,25 @@ export function AuthProvider({ children }) {
       credentials: "include",
       body: JSON.stringify({ email, password }),
     });
-
-    const data = await res.json();
-
+  
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (e) {
+      // la respuesta no es JSON (por ejemplo, HTML de error 500)
+      const msg = `Error del servidor (${res.status}).`;
+      throw new Error(msg);
+    }
+  
     if (!res.ok) {
-      // backend devuelve { error: "invalid_credentials" }
       const msg = data?.error || "Error al iniciar sesión";
       throw new Error(msg);
     }
-
+  
     setUser(data.user || null);
     setReady(true);
     return data.user;
-  };
+  };  
 
   const logout = async () => {
     try {
@@ -70,6 +77,30 @@ export function AuthProvider({ children }) {
       setReady(true);
     }
   };
+
+  // Timeout por inactividad en el FRONT (opcional, 30 minutos)
+  useEffect(() => {
+    const IDLE_MS = 30 * 60 * 1000; // 30 minutos
+    let timerId;
+
+    const resetTimer = () => {
+      clearTimeout(timerId);
+      timerId = setTimeout(() => {
+        logout(); // fuerza logout tras inactividad
+      }, IDLE_MS);
+    };
+
+    // eventos que consideras "actividad"
+    const events = ["mousemove", "keydown", "click"];
+
+    events.forEach((ev) => window.addEventListener(ev, resetTimer));
+    resetTimer(); // inicializa
+
+    return () => {
+      clearTimeout(timerId);
+      events.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [logout]);
 
   const isAdmin = !!user && user.role === "admin";
 

@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, session
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from sqlalchemy import func, cast, Date
@@ -8,19 +8,38 @@ from .decorators import login_required, roles_required
 import pytz
 import io
 import datetime as dt
+import time
 
 from . import db
-from .models import Cliente, Membresia, Pago, Asistencia, ClienteMembresia
+from .models import Cliente, Membresia, Pago, Asistencia, ClienteMembresia, CierreCaja
 
 from openpyxl import Workbook
 
 bp = Blueprint("api", __name__, url_prefix="/api")
+IDLE_TIMEOUT_SECONDS = 30 * 60  # 30 minutos sin actividad
 
 APP_TZ = ZoneInfo("America/Santiago")
 CL_TZ = pytz.timezone("America/Santiago")
 CHILE_TZ = ZoneInfo("America/Santiago")
 
+@bp.before_app_request
+def check_idle_timeout():
+    # si no hay usuario logueado, no hacemos nada
+    if "user_id" not in session:
+        return
 
+    now = time.time()
+    last_active = session.get("last_active", now)
+
+    # si se pasó el tiempo de inactividad
+    if now - last_active > IDLE_TIMEOUT_SECONDS:
+        session.clear()
+        # devolvemos 401 para que el front redirija al login
+        return jsonify({"error": "session_expired"}), 401
+
+    # si aún está dentro del tiempo, actualizamos última actividad
+    session["last_active"] = now
+    
 def to_cl_time(dt_value):
     """Convierte un datetime (naive o con tz) a America/Santiago y retorna HH:MM."""
     if dt_value is None:
@@ -315,6 +334,126 @@ def pagos_hoy():
     }
     return jsonify({"pagos": data, "resumen": resumen})
 
+@bp.get("/dashboard/resumen")
+@login_required
+def dashboard_resumen():
+    hoy = date.today()
+    hace_7 = hoy + timedelta(days=7)
+
+    # 1) Entradas de hoy
+    entradas_hoy = (
+        db.session.query(func.count(Asistencia.asistencia_id))
+        .filter(func.date(Asistencia.fecha_hora) == hoy)
+        .scalar()
+    )
+
+    # 2) Ingresos de hoy
+    pagos_hoy = (
+         db.session.query(func.sum(Pago.monto))
+        .filter(func.date(Pago.fecha_pago) == hoy)
+        .scalar()
+    ) or 0
+
+    # 3) Clientes activos (membresía vigente)
+    activos = (
+        db.session.query(func.count(ClienteMembresia.cliente_membresia_id))
+        .filter(ClienteMembresia.estado == "activa")
+        .filter(ClienteMembresia.fecha_inicio <= hoy)
+        .filter(ClienteMembresia.fecha_fin >= hoy)
+        .scalar()
+    )
+
+    # 4) Membresías que vencen en próximos 7 días
+    vencen_pronto = (
+        db.session.query(func.count(ClienteMembresia.cliente_membresia_id))
+        .filter(ClienteMembresia.estado == "activa")
+        .filter(ClienteMembresia.fecha_fin > hoy)
+        .filter(ClienteMembresia.fecha_fin <= hace_7)
+        .scalar()
+    )
+
+    return jsonify({
+        "entradas_hoy": int(entradas_hoy or 0),
+        "ingresos_hoy": float(pagos_hoy or 0),
+        "clientes_activos": int(activos or 0),
+        "vencimientos_7d": int(vencen_pronto or 0),
+    })
+
+
+# -------------------- CIERRE PAGOS (cierre de caja) --------------------
+
+@bp.post("/caja/cierre")
+@roles_required("admin", "cashier")
+def crear_cierre_caja():
+    hoy = date.today()
+    user_id = getattr(request, "user_id", None)  # según cómo estés guardando el user en el decorador
+
+    # 1) Verificar si ya existe cierre de hoy
+    existente = CierreCaja.query.filter_by(fecha=hoy).first()
+    if existente:
+        return jsonify({"error": "Ya existe un cierre de caja para hoy"}), 400
+
+    payload = request.json or {}
+    dec = lambda x: _decimal(payload.get(x))
+
+    # 2) Obtener resumen actual del sistema (igual que /pagos/hoy)
+    resp = pagos_hoy()
+    pagos_data = resp.get_json()  # o extraer la lógica a una función interna compartida
+    resumen = pagos_data["resumen"]
+
+    cierre = CierreCaja(
+        fecha=hoy,
+        usuario_id=user_id,
+        total_sistema_general=_decimal(resumen["total_general"]),
+        total_sistema_efectivo=_decimal(resumen["total_efectivo"]),
+        total_sistema_tarjeta=_decimal(resumen["total_tarjeta"]),
+        total_sistema_transferencia=_decimal(resumen["total_transferencia"]),
+        total_declarado_efectivo=dec("total_declarado_efectivo"),
+        total_declarado_tarjeta=dec("total_declarado_tarjeta"),
+        total_declarado_transferencia=dec("total_declarado_transferencia"),
+        observaciones=(payload.get("observaciones") or "").strip()
+    )
+
+    # 3) Calcular diferencias
+    cierre.diferencia_efectivo = (
+        cierre.total_declarado_efectivo - cierre.total_sistema_efectivo
+    )
+    cierre.diferencia_tarjeta = (
+        cierre.total_declarado_tarjeta - cierre.total_sistema_tarjeta
+    )
+    cierre.diferencia_transferencia = (
+        cierre.total_declarado_transferencia - cierre.total_sistema_transferencia
+    )
+    cierre.diferencia_total = (
+        cierre.diferencia_efectivo
+        + cierre.diferencia_tarjeta
+        + cierre.diferencia_transferencia
+    )
+
+    db.session.add(cierre)
+    db.session.commit()
+
+    return jsonify({"ok": True, "cierre_id": cierre.cierre_id})
+
+
+@bp.get("/caja/cierre/hoy")
+@login_required
+def cierre_hoy():
+    hoy = date.today()
+    cierre = CierreCaja.query.filter_by(fecha=hoy).first()
+    if not cierre:
+        return jsonify({"cerrado": False})
+
+    return jsonify({
+        "cerrado": True,
+        "fecha": str(cierre.fecha),
+        "usuario": cierre.usuario.name if cierre.usuario else None,
+        "resumen": {
+            "total_sistema_general": float(cierre.total_sistema_general or 0),
+            "total_declarado_efectivo": float(cierre.total_declarado_efectivo or 0),
+            "diferencia_total": float(cierre.diferencia_total or 0),
+        },
+    })
 
 # ---------- ASIGNAR / RENOVAR + PAGO ----------
 @bp.post("/clientes/<int:cliente_id>/pagos/pagar_y_renovar")

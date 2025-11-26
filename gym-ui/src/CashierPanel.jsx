@@ -1,4 +1,3 @@
-// src/CashierPanel.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import Section from "./components/Section";
 import SearchClient from "./components/clients/SearchClient";
@@ -20,6 +19,10 @@ import { usePagosHoy } from "./hooks/usePagosHoy";
 import { useVencimientos } from "./hooks/useVencimientos";
 import { useAuth } from "./auth/AuthProvider";
 
+// NUEVOS IMPORTS
+import DashboardSummary from "./components/dashboard/DashboardSummary";
+import CashClosing from "./components/cash/CashClosing";
+
 export default function CashierPanel() {
   const [clienteId, setClienteId] = useState("");
   const [msg, setMsg] = useState(null);
@@ -31,13 +34,20 @@ export default function CashierPanel() {
   const { items: asistencias = [], marcarEntrada, posting } = useAsistenciasHoy();
   const {
     pagos = [],
-    resumen = { total_general: 0, total_efectivo: 0, total_tarjeta: 0, total_transferencia: 0 },
+    resumen = {
+      total_general: 0,
+      total_efectivo: 0,
+      total_tarjeta: 0,
+      total_transferencia: 0,
+    },
     fetchPagos,
   } = usePagosHoy();
   const { vencimientos = [], fetchVencimientos } = useVencimientos();
   const { info = null, activa = false } = useMembresiaActiva(clienteId || null);
 
-  useEffect(() => { setMsg(null); }, [clienteId]);
+  useEffect(() => {
+    setMsg(null);
+  }, [clienteId]);
 
   const clienteSel = useMemo(
     () => clientes.find((c) => String(c.cliente_id) === String(clienteId)),
@@ -63,124 +73,236 @@ export default function CashierPanel() {
   };
 
   const showClienteNoSel = !clienteId;
-  const showActiva = !!info && info.estado === "activa" && Number(info.dias_restantes ?? 0) >= 0;
+  const showActiva =
+    !!info && info.estado === "activa" && Number(info.dias_restantes ?? 0) >= 0;
 
   if (!ready) {
-    return <div className="p-6 text-sm text-gray-600">Cargando sesión…</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center text-base text-gym-text-muted">
+        Cargando sesión…
+      </div>
+    );
   }
 
   return (
-    <div className="p-5 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">🏋️ Panel — Gimnasio</h1>
-        <div className="text-xs text-gray-600">
-          {user ? (
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-1 rounded bg-gray-100 border text-gray-700">
-                {user.name} — <b>{user.role}</b>
+    <div className="min-h-screen bg-slate-50">
+      {/* Aumentamos padding general y tamaño base de letra */}
+      <div className="px-6 py-8 max-w-6xl mx-auto text-[15px] md:text-[16px]">
+        {/* Header interno del panel */}
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-gym-text-main flex items-center gap-2">
+            <span>🏋️</span>
+            <span>Panel — Gimnasio</span>
+          </h1>
+
+          <div className="text-sm">
+            {user ? (
+              <div className="flex items-center gap-3">
+                {/* 🔄 Botón de recarga */}
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 rounded-md bg-white border border-gym-border text-gym-text-main text-[13px] font-semibold hover:bg-slate-100 flex items-center gap-1"
+                >
+                  <span>↻</span>
+                  <span>Recargar</span>
+                </button>
+
+                <span className="px-4 py-2 rounded-md bg-gym-dark text-white flex items-center gap-2 text-[13px]">
+                  <span>{user.name}</span>
+                  <span className="opacity-80">—</span>
+                  <span className="font-semibold uppercase">{user.role}</span>
+                </span>
+
+                <button
+                  onClick={logout}
+                  className="px-4 py-2 rounded-md bg-white border border-gym-border text-gym-text-main text-[13px] font-semibold hover:bg-slate-100"
+                >
+                  Salir
+                </button>
+              </div>
+            ) : (
+              <span className="px-3 py-1 rounded-md bg-amber-50 border border-amber-300 text-amber-900">
+                No autenticado
               </span>
-              <button onClick={logout} className="px-2 py-1 rounded border text-gray-700 hover:bg-gray-50">
-                Salir
-              </button>
-            </div>
-          ) : (
-            <span className="px-2 py-1 rounded bg-amber-50 border border-amber-300 text-amber-900">
-              No autenticado
-            </span>
-          )}
-        </div>
-      </div>
-
-      {msg && <div className="mb-4 p-3 rounded-md border border-gray-300 bg-white text-sm">{msg}</div>}
-
-      {showClienteNoSel && (
-        <div className="mb-4 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
-          Selecciona un cliente con el buscador o crea uno nuevo para habilitar los módulos.
-        </div>
-      )}
-      {showActiva && (
-        <div className="mb-4 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
-          ⚠️ El cliente ya tiene una <b>membresía activa</b> (vence el <b>{info.fecha_fin}</b>, quedan{" "}
-          <b>{info.dias_restantes}</b> días). No se pueden registrar nuevos pagos hasta que venza.
-        </div>
-      )}
-
-      {/* 1) Buscar Cliente */}
-      <Section title="1) Buscar Cliente"  variant="card" hover={true}
-       subtitle="Ingresa la información del nuevo usuario.">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-          <SearchClient clientes={clientes} value={clienteId} onSelect={setClienteId} />
-          <div className="md:col-span-2">
-            <ClientSummary
-              cliente={clienteSel}
-              infoMembresia={info}
-              puedeEntrar={activa}
-              onEntrada={onEntrada}
-              loadingEntrada={posting}
-              yaEntroHoy={yaEntroHoy}
-              horaPrimeraEntrada={horaPrimeraEntrada}
-            />
+            )}
           </div>
         </div>
-      </Section>
 
-      {/* 2) Registrar Nuevo Cliente */}
-      <Section title="2) Registrar Nuevo Cliente" variant="highlight" hover>
-        <CreateClientForm
-          onCreate={crearCliente}
-          setMsg={setMsg}
-          onCreated={(newId) => {
-            if (newId) setClienteId(String(newId));
-          }}
-          // Si quisieras recarga dura, usa: reloadOnCreate
-          // reloadOnCreate
-        />
-      </Section>
+        {/* DASHBOARD INICIAL */}
+        <DashboardSummary />
 
-      {/* 3) Membresías */}
-      <Section
-        title="3) Membresías"
-        variant="blue"
-        icon="💳"
-        hover={true}
-      >
-      <MembershipAssignRenew
-        clienteId={clienteId}
-        membresias={membresias}
-        infoMembresia={info}
-        onAfterChange={refreshAfterPayment}
-      /></Section>
+        {/* Mensajes globales */}
+        {msg && (
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-gym-danger bg-rose-50 px-4 py-3 text-sm text-gym-danger">
+            <span className="mt-0.5">⚠️</span>
+            <p>{msg}</p>
+          </div>
+        )}
 
-      {/* 4) Crear Plan — SOLO ADMIN */}
-      {isAdmin && (
-        <Section title="4) Crear Plan (admin)" variant="dark" icon="📊" hover>
-          <CreateMembershipForm onCreate={crearMembresia} />
-        </Section>
-      )}
+        {showClienteNoSel && (
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-gym-info bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <span className="mt-0.5">ℹ️</span>
+            <p>
+              Selecciona un cliente con el buscador o crea uno nuevo para habilitar los
+              módulos.
+            </p>
+          </div>
+        )}
 
-      {/* 5) Entraron hoy */}
-      <Section variant="glass" title="Resumen" hover><TodayEntries items={asistencias} /></Section>
+        {showActiva && (
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="mt-0.5">⚠️</span>
+            <p>
+              El cliente ya tiene una <b>membresía activa</b> (vence el{" "}
+              <b>{info.fecha_fin}</b>, quedan <b>{info.dias_restantes}</b> días). No se
+              pueden registrar nuevos pagos hasta que venza.
+            </p>
+          </div>
+        )}
 
-      {/* 6) Caja del día */}
-      {isAdmin && (
-        <Cashbox resumen={resumen} pagos={pagos} />
-      )}
-      
-      {/* 7) Vencimientos próximos */}
-      <UpcomingExpirations items={vencimientos} />
-
-      {/* 8) Reportes */}
-      <Section title="8) Reportes">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <PaymentsExport />
-          <AssistsRange />
+        {/* 1) Buscar Cliente */}
+        <div id="sec-buscar">
+          <Section
+            title="1) Buscar Cliente"
+            subtitle="Ingresa la información del usuario."
+            variant="card"
+            icon="🔍"
+            hover
+          >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-1">
+              <SearchClient clientes={clientes} value={clienteId} onSelect={setClienteId} />
+              <div className="md:col-span-2">
+                <ClientSummary
+                  cliente={clienteSel}
+                  infoMembresia={info}
+                  puedeEntrar={activa}
+                  onEntrada={onEntrada}
+                  loadingEntrada={posting}
+                  yaEntroHoy={yaEntroHoy}
+                  horaPrimeraEntrada={horaPrimeraEntrada}
+                />
+              </div>
+            </div>
+          </Section>
         </div>
-      </Section>
 
-      <footer className="text-[11px] text-gray-500 text-center mt-10">
-        v0.7 · Caja / Recepción
-      </footer>
+        {/* 3) Membresías: solo si hay cliente seleccionado
+        Y NO tiene una membresía activa vigente */}
+        {clienteId && !showActiva && (
+          <div id="sec-membresias">
+            <Section
+              title="3) Membresías"
+              subtitle="Asigna, renueva y cobra planes de membresía."
+              variant="leftPrimary"
+              icon="💳"
+              hover
+            >
+              <MembershipAssignRenew
+                clienteId={clienteId}
+                membresias={membresias}
+                infoMembresia={info}
+                onAfterChange={refreshAfterPayment}
+              />
+            </Section>
+          </div>
+        )}
+
+        {/* 2) Registrar Nuevo Cliente */}
+        <div id="sec-registrar">
+          <Section
+            title="2) Registrar Nuevo Cliente"
+            subtitle="Completa los datos para crear un nuevo cliente."
+            variant="highlight"
+            icon="🧍"
+            hover
+          >
+            <CreateClientForm
+              onCreate={crearCliente}
+              setMsg={setMsg}
+              onCreated={(newId) => {
+                if (newId) setClienteId(String(newId));
+              }}
+            />
+          </Section>
+        </div>
+
+        {/* 4) Crear Plan — SOLO ADMIN */}
+        {isAdmin && (
+          <div id="sec-crearplan">
+            <Section
+              title="4) Crear Plan (admin)"
+              subtitle="Crea o actualiza planes disponibles para el gimnasio."
+              variant="soft"
+              icon="📊"
+              hover
+            >
+              <CreateMembershipForm onCreate={crearMembresia} />
+            </Section>
+          </div>
+        )}
+
+        {/* 5) Entraron hoy */}
+        <Section
+          title="5) Entradas de hoy"
+          subtitle="Listado de clientes que han ingresado al gimnasio en la jornada."
+          variant="soft"
+          icon="✅"
+          hover
+        >
+          <TodayEntries items={asistencias} />
+        </Section>
+
+        {/* 6) Caja del día */}
+        {isAdmin && (
+          <div id="sec-caja">
+            <Section
+              title="6) Caja del día"
+              subtitle="Resumen de pagos y totales registrados en la jornada."
+              variant="card"
+              icon="💰"
+              hover
+            >
+              <Cashbox resumen={resumen} pagos={pagos} />
+
+              {/* NUEVO: CIERRE DE CAJA */}
+              <CashClosing resumen={resumen} onClosed={refreshAfterPayment} />
+            </Section>
+          </div>
+        )}
+
+        {/* 7) Vencimientos próximos */}
+        <div id="sec-vencimientos">
+          <Section
+            title="7) Vencimientos próximos"
+            subtitle="Membresías que están por vencer, ideal para fidelizar clientes."
+            variant="warning"
+            icon="⏰"
+            hover
+          >
+            <UpcomingExpirations items={vencimientos} />
+          </Section>
+        </div>
+
+        {/* 8) Reportes */}
+        <div id="sec-reportes">
+          <Section
+            title="8) Reportes"
+            subtitle="Exporta información de pagos y asistencias para análisis."
+            variant="card"
+            icon="📂"
+            hover
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <PaymentsExport />
+              <AssistsRange />
+            </div>
+          </Section>
+        </div>
+
+        <footer className="text-xs text-gym-text-muted text-center mt-10">
+          v0.7 · Caja / Recepción
+        </footer>
+      </div>
     </div>
   );
 }

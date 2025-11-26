@@ -225,3 +225,23 @@ export async function apiExportPagosExcel(desde, hasta) {
 export async function apiGetVencimientosProximos() {
   return fetchJson(`${API_BASE}/api/vencimientos_proximos`);
 }
+
+/* ===== Dashboard ===== */
+export async function apiGetDashboardResumen() {
+  return fetchJson(`${API_BASE}/api/dashboard/resumen`);
+}
+
+
+/* ===== Caja / Cierres ===== */
+
+export async function apiGetCierreHoy() {
+  return fetchJson(`${API_BASE}/api/caja/cierre/hoy`);
+}
+
+export async function apiCrearCierreCaja(payload) {
+  return fetchJson(`${API_BASE}/api/caja/cierre`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

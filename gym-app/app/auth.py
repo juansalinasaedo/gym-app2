@@ -1,12 +1,43 @@
-# app/auth.py
 from __future__ import annotations
 
 from flask import Blueprint, request, jsonify, session
 from typing import Any, Dict, Optional
 from .models import User
 from . import db
+import time   
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+# Tiempo máximo de inactividad antes de expirar sesión (en segundos)
+IDLE_TIMEOUT_SECONDS = 30 * 60  # 30 minutos
+
+@auth_bp.before_app_request
+def check_idle_timeout():
+    """
+    Si hay usuario logueado y no ha hecho requests en más de IDLE_TIMEOUT_SECONDS,
+    se borra la sesión y se responde 401 session_expired.
+    """
+    # Rutas que NO deben gatillar este chequeo (permitimos que funcionen siempre)
+    if request.path.startswith("/auth/login") or \
+       request.path.startswith("/auth/logout") or \
+       request.path.startswith("/auth/me"):
+        return
+
+    # Si no hay usuario en sesión, no hay nada que expirar
+    if "user_id" not in session:
+        return
+
+    now = time.time()
+    last_active = session.get("last_active", now)
+
+    # Si superó el tiempo de inactividad, limpiamos sesión y devolvemos 401
+    if now - last_active > IDLE_TIMEOUT_SECONDS:
+        session.clear()
+        return jsonify({"error": "session_expired"}), 401
+
+    # Si todavía está dentro del periodo, actualizamos last_active
+    session["last_active"] = now
+
 
 # ---------- Helpers ----------
 
@@ -53,6 +84,7 @@ def login():
     # Cookie de sesión (Flask)
     session["user_id"] = u.user_id
     session["role"] = u.role
+    session["last_active"] = time.time()
     return jsonify({"user": _user_to_dict(u)}), 200
 
 

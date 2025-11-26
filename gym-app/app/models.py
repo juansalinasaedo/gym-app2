@@ -142,4 +142,39 @@ class User(db.Model):
         self.password_hash = password_hasher.hash(raw)
 
     def check_password(self, raw: str) -> bool:
-        return password_hasher.verify(raw, self.password_hash)
+        try:
+            return password_hasher.verify(raw, self.password_hash)
+        except ValueError:
+            # Hash inválido o en formato antiguo → lo tratamos como clave incorrecta
+            return False
+    
+class CierreCaja(db.Model):
+    __tablename__ = "cierres_caja"
+
+    cierre_id = db.Column(db.Integer, primary_key=True)
+    fecha = db.Column(db.Date, nullable=False, index=True)  # fecha del cierre
+    usuario_id = db.Column(
+        db.Integer, db.ForeignKey("users.user_id", ondelete="SET NULL")
+    )
+    # Totales según sistema (lo que calcula /pagos/hoy)
+    total_sistema_general = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_sistema_efectivo = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_sistema_tarjeta = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_sistema_transferencia = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+
+    # Lo que declara el cajero contando caja
+    total_declarado_efectivo = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_declarado_tarjeta = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_declarado_transferencia = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+
+    # Diferencias (para auditoría rápida)
+    diferencia_efectivo = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    diferencia_tarjeta = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    diferencia_transferencia = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    diferencia_total = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+
+    observaciones = db.Column(db.Text)
+    creado_en = db.Column(db.DateTime, default=ahora_chile)
+
+    usuario = relationship("User")
+
