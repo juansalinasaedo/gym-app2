@@ -1,5 +1,6 @@
 // src/api.js
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+// DESPUÉS
+export const API_BASE = import.meta.env.VITE_API_BASE || "";
 const json = { "Content-Type": "application/json" };
 
 // === NUEVO: leer token guardado en localStorage ===
@@ -138,9 +139,13 @@ export async function apiGetMembresiaActiva(clienteId) {
 }
 
 /* ===== Asignar/Renovar + Pago ===== */
+/**
+ * Unifica asignar y renovar membresía + registrar el pago.
+ * El backend expone /api/clientes/<id>/pagar-membresia
+ */
 export async function apiPagarYRenovar(clienteId, body) {
   return fetchJson(
-    `${API_BASE}/api/clientes/${clienteId}/pagos/pagar_y_renovar`,
+    `${API_BASE}/api/clientes/${clienteId}/pagar-membresia`,
     {
       method: "POST",
       headers: json,
@@ -188,13 +193,24 @@ export async function apiMarcarAsistencia(clienteId, tipo = "entrada") {
   return res.json();
 }
 
+/** NUEVO: registrar asistencia usando token QR */
+export async function apiMarcarAsistenciaQR(token) {
+  const t = (token || "").trim();
+  if (!t) {
+    throw new Error("token vacío");
+  }
+
+  // Usa el helper fetchJson para manejar auth + errores
+  return fetchJson(`${API_BASE}/api/asistencias/qr`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ token: t }),
+  });
+}
+
 export async function apiAsistenciasRango(desde, hasta) {
   const qs = new URLSearchParams({ from: desde, to: hasta }).toString();
   return fetchJson(`${API_BASE}/api/asistencias/rango?${qs}`);
-}
-export function apiAsistenciasRangoExcelUrl(desde, hasta) {
-  const qs = new URLSearchParams({ desde, hasta }).toString();
-  return `${API_BASE}/api/asistencias/rango/excel?${qs}`;
 }
 
 /* ===== Pagos / Caja ===== */

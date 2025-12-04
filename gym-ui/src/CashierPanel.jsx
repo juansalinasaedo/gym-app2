@@ -1,3 +1,4 @@
+// src/CashierPanel.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import Section from "./components/Section";
 import SearchClient from "./components/clients/SearchClient";
@@ -6,6 +7,8 @@ import CreateClientForm from "./components/clients/CreateClientForm";
 import MembershipAssignRenew from "./components/memberships/MembershipAssignRenew";
 import CreateMembershipForm from "./components/memberships/CreateMembershipForm";
 import TodayEntries from "./components/attendance/TodayEntries";
+import QrCheckin from "./components/attendance/QrCheckin"; 
+import QrCameraCheckin from "./components/attendance/QrCameraCheckin"; 
 import Cashbox from "./components/cash/Cashbox";
 import UpcomingExpirations from "./components/expirations/UpcomingExpirations";
 import PaymentsExport from "./components/reports/PaymentsExport";
@@ -31,7 +34,13 @@ export default function CashierPanel() {
 
   const { clientes = [], crearCliente } = useClientes();
   const { membresias = [], crearMembresia } = useMembresias();
-  const { items: asistencias = [], marcarEntrada, posting } = useAsistenciasHoy();
+  const [checkinMode, setCheckinMode] = useState("manual"); // "manual" | "camera"
+  const {
+    items: asistencias = [],
+    marcarEntrada,
+    posting,
+    fetchAsistencias,   // <--- NUEVO
+  } = useAsistenciasHoy();
   const {
     pagos = [],
     resumen = {
@@ -133,14 +142,14 @@ export default function CashierPanel() {
 
         {/* Mensajes globales */}
         {msg && (
-          <div className="mb-4 flex items-start gap-2 rounded-md border border-gym-danger bg-rose-50 px-4 py-3 text-sm text-gym-danger">
+          <div className="mb-4 flex items.start gap-2 rounded-md border border-gym-danger bg-rose-50 px-4 py-3 text-sm text-gym-danger">
             <span className="mt-0.5">⚠️</span>
             <p>{msg}</p>
           </div>
         )}
 
         {showClienteNoSel && (
-          <div className="mb-4 flex items-start gap-2 rounded-md border border-gym-info bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <div className="mb-4 flex items.start gap-2 rounded-md border border-gym-info bg-blue-50 px-4 py-3 text-sm text-blue-900">
             <span className="mt-0.5">ℹ️</span>
             <p>
               Selecciona un cliente con el buscador o crea uno nuevo para habilitar los
@@ -150,7 +159,7 @@ export default function CashierPanel() {
         )}
 
         {showActiva && (
-          <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="mb-4 flex items.start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <span className="mt-0.5">⚠️</span>
             <p>
               El cliente ya tiene una <b>membresía activa</b> (vence el{" "}
@@ -170,7 +179,11 @@ export default function CashierPanel() {
             hover
           >
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-1">
-              <SearchClient clientes={clientes} value={clienteId} onSelect={setClienteId} />
+              <SearchClient
+                clientes={clientes}
+                value={clienteId}
+                onSelect={setClienteId}
+              />
               <div className="md:col-span-2">
                 <ClientSummary
                   cliente={clienteSel}
@@ -187,7 +200,7 @@ export default function CashierPanel() {
         </div>
 
         {/* 3) Membresías: solo si hay cliente seleccionado
-        Y NO tiene una membresía activa vigente */}
+            Y NO tiene una membresía activa vigente */}
         {clienteId && !showActiva && (
           <div id="sec-membresias">
             <Section
@@ -206,6 +219,53 @@ export default function CashierPanel() {
             </Section>
           </div>
         )}
+
+        {/* 5) Check-in rápido por QR */}
+        <div id="sec-qr">
+        <Section
+          title="5) Check-in rápido por QR"
+          subtitle="Escanea el código QR del cliente para marcar su entrada."
+          variant="soft"
+          icon="📲"
+          hover
+        >
+          {/* Selector de modo */}
+          <div className="mb-3 flex items-center gap-2 text-xs">
+            <span className="text-gray-600">Modo:</span>
+            <button
+              type="button"
+              onClick={() => setCheckinMode("manual")}
+              className={
+                "px-2 py-1 rounded border text-xs " +
+                (checkinMode === "manual"
+                  ? "border-gym-primary text-white bg-gym-primary"
+                  : "border-gray-300 text-gray-700 bg-white hover:bg-gray-50")
+              }
+            >
+              Entrada manual
+            </button>
+            <button
+              type="button"
+              onClick={() => setCheckinMode("camera")}
+              className={
+                "px-2 py-1 rounded border text-xs " +
+                (checkinMode === "camera"
+                  ? "border-gym-primary text-white bg-gym-primary"
+                  : "border-gray-300 text-gray-700 bg-white hover:bg-gray-50")
+              }
+            >
+              Cámara
+            </button>
+          </div>
+
+          {/* Contenido según modo */}
+          {checkinMode === "manual" ? (
+            <QrCheckin onSuccess={fetchAsistencias} />
+          ) : (
+            <QrCameraCheckin onSuccess={fetchAsistencias} />
+          )}
+        </Section>
+      </div>
 
         {/* 2) Registrar Nuevo Cliente */}
         <div id="sec-registrar">
@@ -241,18 +301,20 @@ export default function CashierPanel() {
           </div>
         )}
 
-        {/* 5) Entraron hoy */}
-        <Section
-          title="5) Entradas de hoy"
-          subtitle="Listado de clientes que han ingresado al gimnasio en la jornada."
-          variant="soft"
-          icon="✅"
-          hover
-        >
-          <TodayEntries items={asistencias} />
-        </Section>
+        {/* 6) Entradas de hoy */}
+        <div id="sec-asistencia">
+          <Section
+            title="6) Entradas de hoy"
+            subtitle="Listado de clientes que han ingresado al gimnasio en la jornada."
+            variant="soft"
+            icon="✅"
+            hover
+          >
+            <TodayEntries items={asistencias} />
+          </Section>
+        </div>
 
-        {/* 6) Caja del día */}
+        {/* 7) Caja del día */}
         {isAdmin && (
           <div id="sec-caja">
             <Section
@@ -270,7 +332,7 @@ export default function CashierPanel() {
           </div>
         )}
 
-        {/* 7) Vencimientos próximos */}
+        {/* 8) Vencimientos próximos */}
         <div id="sec-vencimientos">
           <Section
             title="7) Vencimientos próximos"
@@ -283,7 +345,7 @@ export default function CashierPanel() {
           </Section>
         </div>
 
-        {/* 8) Reportes */}
+        {/* 9) Reportes */}
         <div id="sec-reportes">
           <Section
             title="8) Reportes"
@@ -300,7 +362,7 @@ export default function CashierPanel() {
         </div>
 
         <footer className="text-xs text-gym-text-muted text-center mt-10">
-          v0.7 · Caja / Recepción
+          v0.8 · Caja / Recepción
         </footer>
       </div>
     </div>

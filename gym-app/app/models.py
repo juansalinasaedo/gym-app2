@@ -5,6 +5,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, Numeric, Fore
 from datetime import datetime, timezone, timedelta
 from passlib.hash import pbkdf2_sha256 as password_hasher
 from enum import Enum
+import secrets  # ya lo tenías importado
 
 # ========= Zona horaria Chile con fallbacks =========
 def get_chile_tz():
@@ -46,9 +47,12 @@ class Cliente(db.Model):
     direccion = db.Column(db.Text)
     fecha_registro = db.Column(db.DateTime, default=ahora_chile)
     estado = db.Column(db.String(20), default="activo")
-     # NUEVO
+    # NUEVO: información adicional
     estado_laboral = Column(String(40))        # p.ej.: "Dependiente", "Independiente", "Cesante", etc.
     sexo = Column(String(1))                   # 'M', 'F' u 'O'
+
+    # NUEVO: token único para QR de asistencia
+    qr_token = db.Column(db.String(64), unique=True, nullable=False, default="")
 
     membresias = relationship(
         "ClienteMembresia", back_populates="cliente", cascade="all, delete-orphan"
@@ -59,6 +63,12 @@ class Cliente(db.Model):
     pagos = relationship(
         "Pago", back_populates="cliente", cascade="all, delete-orphan"
     )
+
+    # NUEVO: helper para garantizar que siempre tenga un token QR
+    def ensure_qr_token(self):
+        if not self.qr_token:
+            # token_urlsafe genera algo tipo 'xYzAbC...'
+            self.qr_token = secrets.token_urlsafe(16)
 
 
 class Membresia(db.Model):
@@ -114,7 +124,9 @@ class Asistencia(db.Model):
         db.Integer, db.ForeignKey("clientes.cliente_id", ondelete="CASCADE")
     )
     fecha_hora = db.Column(db.DateTime, default=ahora_chile)
-    tipo = db.Column(db.String(10), nullable=False)
+
+    # AJUSTE: default="entrada" para no romper cuando no se pasa el tipo explícito
+    tipo = db.Column(db.String(10), nullable=False, default="entrada")
 
     __table_args__ = (
         CheckConstraint("tipo IN ('entrada','salida')", name="ck_asistencias_tipo"),
@@ -148,6 +160,7 @@ class User(db.Model):
             # Hash inválido o en formato antiguo → lo tratamos como clave incorrecta
             return False
     
+
 class CierreCaja(db.Model):
     __tablename__ = "cierres_caja"
 
@@ -177,4 +190,3 @@ class CierreCaja(db.Model):
     creado_en = db.Column(db.DateTime, default=ahora_chile)
 
     usuario = relationship("User")
-

@@ -1,5 +1,6 @@
 // src/components/clients/ClientSummary.jsx
 import { horaBonita } from "../../utils/time";
+import { API_BASE } from "../../api";   // <--- NUEVO
 
 export default function ClientSummary({
   cliente, infoMembresia, puedeEntrar, onEntrada, loadingEntrada,
@@ -17,6 +18,10 @@ export default function ClientSummary({
   const estadoLaboral = cliente.estado_laboral?.trim() || "—";
   const sexo = (cliente.sexo || "").toUpperCase(); // 'M', 'F', 'O'
   const sexoLabel = sexo === "M" ? "Masculino" : sexo === "F" ? "Femenino" : sexo === "O" ? "Otro" : "—";
+  const handleVerQR = () => {
+    const url = `${API_BASE}/api/clientes/${cliente.cliente_id}/qr`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="p-3 border rounded h-full flex flex-col gap-3 bg-gray-50 text-xs">
@@ -30,6 +35,27 @@ export default function ClientSummary({
         </div>
         <div className="text-gray-600">
           Estado cliente: <span className="font-semibold">{cliente.estado}</span>
+        </div>
+
+        {/* Botón Ver QR */}
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={handleVerQR}
+            className="inline-flex items-center px-2 py-1 text-[11px] border border-gray-300 rounded hover:bg-gray-100"
+          >
+            Ver QR
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              window.open(`${API_BASE}/api/clientes/${cliente.cliente_id}/credencial`, "_blank")
+            }
+            className="inline-flex items-center px-2 py-1 text-[11px] border border-gray-300 rounded hover:bg-gray-100"
+          >
+            Descargar credencials
+          </button>
         </div>
 
         {/* Nuevos campos */}
