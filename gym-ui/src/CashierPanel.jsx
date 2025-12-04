@@ -223,7 +223,7 @@ export default function CashierPanel() {
         {/* 5) Check-in rápido por QR */}
         <div id="sec-qr">
         <Section
-          title="5) Check-in rápido por QR"
+          title="Check-in rápido por QR"
           subtitle="Escanea el código QR del cliente para marcar su entrada."
           variant="soft"
           icon="📲"
