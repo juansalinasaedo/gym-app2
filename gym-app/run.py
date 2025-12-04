@@ -7,7 +7,7 @@ app = create_app()
 
 def seed_admin():
     """
-    Crea el usuario admin si no existe.
+    Crea el usuario "admin" si no existe.
     Esta función se puede ejecutar en cada arranque sin problemas.
     """
     email = "admin@gym.local"
