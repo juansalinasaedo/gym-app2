@@ -1,98 +1,62 @@
-# 🏋️‍♂️ GYM-APP — Sistema de Gestión para Gimnasios
-
-Sistema web completo para administración de clientes, membresías, pagos, accesos diarios y control de planes, desarrollado en **React + Flask + PostgreSQL**.  
-Diseñado para gimnasios reales, con un flujo rápido, seguro y pensado para uso diario por administradores y cajeros.
+# 🏋️‍♂️ GYM-APP — Sistema de Gestión para Gimnasios  
+Sistema profesional de administración para gimnasios: gestión de clientes, membresías, asistencias con QR, credenciales PDF, control de caja y estadísticas.  
+Desarrollado en **Flask + React + PostgreSQL**, optimizado para uso real en recepción.
 
 ## 🚀 Características principales
 
 ### 🔐 Autenticación y Seguridad
-- Login con cookies HTTPOnly (seguro contra XSS / CSRF).
-- Expiración automática de sesión por inactividad.
-- Rutas protegidas según rol del usuario (admin, cajero, lector).
+- Login seguro con cookies HTTPOnly.
+- Sesiones persistentes y expiración automática por inactividad.
+- Middleware de protección de rutas según rol del usuario: Admin, Cajero, Lector.
 
-### 🧍 Gestión de Clientes
-- Búsqueda rápida por nombre o RUT.
-- Registro de nuevos clientes.
-- Ficha detallada con datos personales.
+## 🧍 Gestión de Clientes
+- Búsqueda instantánea por nombre o RUT.
+- Token QR único por cliente.
+- Ficha completa del cliente.
 
-### 🎫 Gestión de Membresías
-- Asignación de nuevos planes.
-- Renovaciones y cobro integrado.
-- Bloqueo automático si el cliente tiene un plan activo.
-- Días restantes visibles.
+## 🎫 Membresías / Planes
+- Asignación, renovación y control de vigencia.
+- Cálculo automático de días restantes.
 
-### 💰 Pagos y Movimientos
-- Ingresos del día.
-- Histórico de membresías pagadas.
-- Métodos de pago (efectivo, transferencia, etc.).
+## 🎥 Check-in rápido por QR
+### ✔ Modo Manual
+El lector actúa como teclado.
 
-### 📊 Dashboard
-- Entradas del día.
-- Ingresos del día.
-- Clientes activos.
-- Membresías próximas a vencer.
-- Botón de Recargar para actualizar datos instantáneamente.
+### ✔ Modo Cámara
+- Lectura en tiempo real con html5-qrcode.
+- Registro instantáneo y seguro.
+- Manejo de entradas duplicadas.
+
+## 🪪 Credencial PDF del Cliente
+- Generación automática con QR.
+- Diseño tipo tarjeta imprimible.
+
+## 📊 Entradas del día
+- Ordenadas cronológicamente.
+- Refrescadas automáticamente tras registrar asistencia.
+
+## 💰 Caja del día
+- Control básico de ingresos del día.
 
 ## 🛠️ Tecnologías utilizadas
+### Backend
+Flask, SQLAlchemy, PostgreSQL, qrcode, reportlab, passlib.
 
 ### Frontend
-- React 18
-- Vite
-- TailwindCSS
-- React Router DOM
-- Context API
-- Fetch API
-- React Icons
+React, Vite, TailwindCSS, html5-qrcode.
 
-### Backend
-- Python 3
-- Flask
-- PostgreSQL
-- SQLAlchemy
-- CORS
-- Sesiones seguras
+## 📁 Estructura del proyecto
+gym-app/ (backend)  
+gym-ui/ (frontend)
 
-## 📁 Estructura del Proyecto
-
-### Frontend
-```
-gym-ui/
- ├─ src/
- │   ├─ api/
- │   ├─ components/
- │   ├─ context/
- │   ├─ pages/
- │   ├─ hooks/
- │   └─ main.jsx
- ├─ public/
- ├─ .env.local
- └─ vite.config.js
-```
-
+## ⚙️ Instalación local
 ### Backend
 ```
-gym-api/
- ├─ app/
- │   ├─ auth.py
- │   ├─ routes.py
- │   ├─ models/
- │   ├─ database.py
- │   └─ utils/
- ├─ app.py
- ├─ requirements.txt
- └─ build.sh
-```
-
-## ⚙️ Instalación
-
-### Backend
-```
-cd gym-api
+cd gym-app
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate   # Windows
+source venv/bin/activate
 pip install -r requirements.txt
-python app.py
+python run.py
 ```
 
 ### Frontend
@@ -103,34 +67,31 @@ npm run dev
 ```
 
 ## 🌍 Variables de entorno
-
-### Frontend
+Backend:
 ```
-VITE_API_BASE=http://127.0.0.1:5000
-```
-
-### Backend
-```
-DATABASE_URL=postgresql://usuario:password@localhost:5432/gym
-SECRET_KEY=clave_segura
-CORS_ORIGIN=http://127.0.0.1:5173
+DATABASE_URL=
+SECRET_KEY=
+CORS_ORIGIN=
 ```
 
-## 🚀 Despliegue en Render
+Frontend:
+```
+VITE_API_BASE=
+```
 
-- Backend usando build.sh + gunicorn  
-- Configurar variables de entorno  
-- Frontend en Vercel o Netlify  
+## 🚀 Deploy en Render
+- Añadir qrcode[pil] y reportlab a requirements.txt.
+- Comando de inicio: `python run.py`.
 
-## 🗺️ Roadmap
+## 🚀 Deploy del Frontend
+- Vercel, Netlify o Render Static Site.
 
-- Reportes PDF / Excel  
-- Control de asistencia avanzada  
-- Pagos en línea (WebPay / MercadoPago)  
-- Notificaciones por correo  
-- App móvil  
+## 🗺️ Roadmap futuro
+- App móvil
+- Dashboard avanzado
+- Integración de pagos
+- Exportaciones masivas
 
 ## 👤 Autor
-**Juan Francisco Salinas Aedo**  
-Ingeniero Informático  
+Juan Francisco Salinas Aedo  
 LinkedIn: https://www.linkedin.com/in/juan-salinas-aedo-ti/
