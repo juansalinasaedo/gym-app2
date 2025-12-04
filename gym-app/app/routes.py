@@ -463,7 +463,7 @@ def registrar_asistencia_qr():
             "hora": _hora_local_hhmm(ya_existe.fecha_hora),
         }), 200
 
-    # Hora actual en Chile y su equivalente en UTC
+    # Hora actual en Chile y su equivalente en UTC.
     now_cl = datetime.now(CHILE_TZ)
     now_utc = now_cl.astimezone(ZoneInfo("UTC"))
 
