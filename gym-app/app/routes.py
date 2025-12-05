@@ -119,9 +119,20 @@ def crear_cliente():
     estado_laboral = (payload.get("estado_laboral") or "").strip()
     sexo = (payload.get("sexo") or "").strip()
 
+    # Validaciones básicas
     if not nombre:
         return jsonify({"error": "El nombre es obligatorio"}), 400
 
+    # Si tienes RUT único en la BD, conviene validar antes
+    if rut:
+        existente = Cliente.query.filter_by(rut=rut).first()
+        if existente:
+            return jsonify({
+                "error": "Ya existe un cliente registrado con ese RUT.",
+                "cliente_id": existente.cliente_id,
+            }), 400
+
+    # Crear instancia
     cliente = Cliente(
         nombre=nombre,
         apellido=apellido,
@@ -132,8 +143,21 @@ def crear_cliente():
         estado_laboral=estado_laboral,
         sexo=sexo,
     )
-    db.session.add(cliente)
-    db.session.commit()
+
+    try:
+        # Si tu modelo tiene ensure_qr_token, aprovechamos de dejarlo listo
+        if hasattr(cliente, "ensure_qr_token"):
+            cliente.ensure_qr_token()
+
+        db.session.add(cliente)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        # Aquí puedes loguear e en tu consola si quieres más detalle
+        return jsonify({
+            "error": "No se pudo crear el cliente. Revisa los datos o intenta nuevamente.",
+            "detail": str(e),
+        }), 500
 
     return jsonify({
         "cliente_id": cliente.cliente_id,
@@ -146,6 +170,7 @@ def crear_cliente():
         "estado_laboral": cliente.estado_laboral,
         "sexo": cliente.sexo,
     }), 201
+
 
 # -------------------- QR de clientes --------------------
 @bp.get("/clientes/<int:cliente_id>/qr")
@@ -324,6 +349,62 @@ def crear_membresia():
         "precio": float(m.precio),
     }), 201
 
+@bp.delete("/membresias/<int:membresia_id>")
+@roles_required("admin")
+def eliminar_membresia(membresia_id: int):
+    """
+    Elimina un plan de membresía.
+    Solo para admin. Si la BD tiene restricciones de FK y el plan
+    está asociado a clientes, se devolverá un error 400.
+    """
+    m = Membresia.query.get_or_404(membresia_id)
+
+    try:
+        db.session.delete(m)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "no_se_puede_eliminar",
+            "mensaje": "No se puede eliminar el plan porque tiene registros asociados.",
+            "detail": str(e),
+        }), 400
+
+    return jsonify({"ok": True})
+
+
+@bp.put("/membresias/<int:membresia_id>")
+@roles_required("admin")
+def actualizar_membresia(membresia_id: int):
+    """
+    Actualiza un plan de membresía (nombre, duración en días, precio).
+    Solo para admin.
+    """
+    m = Membresia.query.get_or_404(membresia_id)
+
+    payload = request.json or {}
+    nombre = (payload.get("nombre") or m.nombre).strip()
+    duracion_dias = int(payload.get("duracion_dias") or m.duracion_dias)
+    precio = _decimal(payload.get("precio"), m.precio)
+
+    if not nombre:
+        return jsonify({"error": "El nombre es obligatorio"}), 400
+    if duracion_dias <= 0:
+        return jsonify({"error": "La duración debe ser mayor a 0"}), 400
+    if precio <= 0:
+        return jsonify({"error": "El precio debe ser mayor a 0"}), 400
+
+    m.nombre = nombre
+    m.duracion_dias = duracion_dias
+    m.precio = precio
+    db.session.commit()
+
+    return jsonify({
+        "membresia_id": m.membresia_id,
+        "nombre": m.nombre,
+        "duracion_dias": m.duracion_dias,
+        "precio": float(m.precio),
+    })
 
 # -------------------- Asistencias --------------------
 @bp.get("/asistencias/hoy")
@@ -387,6 +468,244 @@ def asistencias_hoy():
         for a in rows
     ]
     return jsonify(data)
+
+@bp.get("/asistencias/rango")
+@login_required
+def asistencias_rango():
+    """
+    Devuelve asistencias entre dos fechas (inclusive), en hora local Chile.
+
+    Parámetros de query:
+      from=YYYY-MM-DD
+      to=YYYY-MM-DD
+
+    El frontend espera un arreglo de objetos con:
+      fecha, asistencia_id, cliente_id, hora, nombre, apellido, rut
+    """
+    # Aceptamos tanto from/to como desde/hasta por si acaso
+    desde_str = request.args.get("from") or request.args.get("desde")
+    hasta_str = request.args.get("to") or request.args.get("hasta")
+
+    if not desde_str or not hasta_str:
+        return jsonify({
+            "error": "from_and_to_required",
+            "mensaje": "Debe indicar los parámetros 'from' y 'to' (YYYY-MM-DD).",
+        }), 400
+
+    try:
+        desde_date = date.fromisoformat(desde_str)
+        hasta_date = date.fromisoformat(hasta_str)
+    except ValueError:
+        return jsonify({
+            "error": "formato_fecha_invalido",
+            "mensaje": "Use formato YYYY-MM-DD en 'from' y 'to'.",
+        }), 400
+
+    # Si vienen invertidas, las ordenamos
+    if hasta_date < desde_date:
+        desde_date, hasta_date = hasta_date, desde_date
+
+    # --- Versión para PostgreSQL (la que usas en producción) ---
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
+        fecha_local = cast(tz_expr, Date)
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
+
+        rows = (
+            db.session.query(
+                fecha_local.label("fecha"),
+                Asistencia.asistencia_id,
+                Asistencia.cliente_id,
+                hora_local,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+            )
+            .join(Cliente, Cliente.cliente_id == Asistencia.cliente_id)
+            .filter(fecha_local >= desde_date)
+            .filter(fecha_local <= hasta_date)
+            .order_by(fecha_local.asc(), hora_local.asc())
+            .all()
+        )
+
+        data = [
+            {
+                "fecha": f.isoformat() if hasattr(f, "isoformat") else str(f),
+                "asistencia_id": a_id,
+                "cliente_id": c_id,
+                "hora": hora_txt or "",
+                "nombre": nombre,
+                "apellido": apellido,
+                "rut": rut,
+            }
+            for (f, a_id, c_id, hora_txt, nombre, apellido, rut) in rows
+        ]
+    else:
+        # Fallback genérico (SQLite u otro) usando rangos de datetime
+        desde_dt = datetime(desde_date.year, desde_date.month, desde_date.day, 0, 0, 0, tzinfo=CHILE_TZ)
+        hasta_dt = datetime(hasta_date.year, hasta_date.month, hasta_date.day, 23, 59, 59, tzinfo=CHILE_TZ)
+
+        rows = (
+            db.session.query(
+                Asistencia.asistencia_id,
+                Asistencia.cliente_id,
+                Asistencia.fecha_hora,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+            )
+            .join(Cliente, Cliente.cliente_id == Asistencia.cliente_id)
+            .filter(Asistencia.fecha_hora >= desde_dt)
+            .filter(Asistencia.fecha_hora <= hasta_dt)
+            .order_by(Asistencia.fecha_hora.asc())
+            .all()
+        )
+
+        data = []
+        for a_id, c_id, fecha_hora, nombre, apellido, rut in rows:
+            fecha_txt = (
+                fecha_hora.date().isoformat()
+                if hasattr(fecha_hora, "date")
+                else ""
+            )
+            hora_txt = _hora_local_hhmm(fecha_hora)
+            data.append(
+                {
+                    "fecha": fecha_txt,
+                    "asistencia_id": a_id,
+                    "cliente_id": c_id,
+                    "hora": hora_txt,
+                    "nombre": nombre,
+                    "apellido": apellido,
+                    "rut": rut,
+                }
+            )
+
+    return jsonify(data)
+
+# ----------------- Reporte Excel de asistencias por rango -----------------
+@bp.get("/asistencias/rango/excel")
+@login_required
+def asistencias_rango_excel():
+    """
+    Devuelve un archivo Excel con las asistencias entre 'desde' y 'hasta' (inclusive).
+
+    Parámetros de query:
+      desde=YYYY-MM-DD
+      hasta=YYYY-MM-DD
+    """
+    desde_str = request.args.get("desde")
+    hasta_str = request.args.get("hasta")
+
+    if not desde_str or not hasta_str:
+        return jsonify({
+            "error": "desde_hasta_requeridos",
+            "mensaje": "Debe indicar los parámetros 'desde' y 'hasta' (YYYY-MM-DD).",
+        }), 400
+
+    try:
+        desde_date = date.fromisoformat(desde_str)
+        hasta_date = date.fromisoformat(hasta_str)
+    except ValueError:
+        return jsonify({
+            "error": "formato_fecha_invalido",
+            "mensaje": "Use formato YYYY-MM-DD en 'desde' y 'hasta'.",
+        }), 400
+
+    if hasta_date < desde_date:
+        desde_date, hasta_date = hasta_date, desde_date
+
+    # Query similar a asistencias_rango
+    if _is_postgres(db.session):
+        tz_expr = func.timezone("America/Santiago", Asistencia.fecha_hora)
+        fecha_local = cast(tz_expr, Date)
+        hora_local = func.to_char(tz_expr, "HH24:MI").label("hora")
+
+        rows = (
+            db.session.query(
+                fecha_local.label("fecha"),
+                hora_local,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                Asistencia.cliente_id,
+            )
+            .join(Cliente, Cliente.cliente_id == Asistencia.cliente_id)
+            .filter(fecha_local >= desde_date)
+            .filter(fecha_local <= hasta_date)
+            .order_by(fecha_local.asc(), hora_local.asc())
+            .all()
+        )
+    else:
+        desde_dt = datetime(desde_date.year, desde_date.month, desde_date.day, 0, 0, 0, tzinfo=CHILE_TZ)
+        hasta_dt = datetime(hasta_date.year, hasta_date.month, hasta_date.day, 23, 59, 59, tzinfo=CHILE_TZ)
+
+        rows = (
+            db.session.query(
+                Asistencia.fecha_hora,
+                Cliente.nombre,
+                Cliente.apellido,
+                Cliente.rut,
+                Asistencia.cliente_id,
+            )
+            .join(Cliente, Cliente.cliente_id == Asistencia.cliente_id)
+            .filter(Asistencia.fecha_hora >= desde_dt)
+            .filter(Asistencia.fecha_hora <= hasta_dt)
+            .order_by(Asistencia.fecha_hora.asc())
+            .all()
+        )
+
+    # Crear Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Asistencias rango"
+
+    ws.append(["Fecha", "Hora", "Cliente", "RUT", "ID Cliente"])
+
+    if _is_postgres(db.session):
+        for fecha_local, hora_txt, nombre, apellido, rut, cliente_id in rows:
+            fecha_txt = fecha_local.isoformat() if hasattr(fecha_local, "isoformat") else str(fecha_local)
+            ws.append([
+                fecha_txt,
+                hora_txt or "",
+                f"{nombre} {apellido}",
+                rut,
+                f"#{cliente_id}",
+            ])
+    else:
+        for fecha_hora, nombre, apellido, rut, cliente_id in rows:
+            dt_cl = _to_chile_dt(fecha_hora)
+            ws.append([
+                dt_cl.date().isoformat(),
+                dt_cl.strftime("%H:%M"),
+                f"{nombre} {apellido}",
+                rut,
+                f"#{cliente_id}",
+            ])
+
+    # Ajuste simple de ancho de columnas
+    for col in ws.columns:
+        max_length = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            try:
+                max_length = max(max_length, len(str(cell.value or "")))
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = max_length + 2
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = f"asistencias_{desde_date.isoformat()}_a_{hasta_date.isoformat()}.xlsx"
+
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @bp.post("/asistencias")

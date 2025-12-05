@@ -5,7 +5,7 @@ import SearchClient from "./components/clients/SearchClient";
 import ClientSummary from "./components/clients/ClientSummary";
 import CreateClientForm from "./components/clients/CreateClientForm";
 import MembershipAssignRenew from "./components/memberships/MembershipAssignRenew";
-import CreateMembershipForm from "./components/memberships/CreateMembershipForm";
+//import CreateMembershipForm from "./components/memberships/CreateMembershipForm";
 import TodayEntries from "./components/attendance/TodayEntries";
 import QrCheckin from "./components/attendance/QrCheckin"; 
 import QrCameraCheckin from "./components/attendance/QrCameraCheckin"; 
@@ -285,21 +285,6 @@ export default function CashierPanel() {
             />
           </Section>
         </div>
-
-        {/* 4) Crear Plan — SOLO ADMIN */}
-        {isAdmin && (
-          <div id="sec-crearplan">
-            <Section
-              title="4) Crear Plan (admin)"
-              subtitle="Crea o actualiza planes disponibles para el gimnasio."
-              variant="soft"
-              icon="📊"
-              hover
-            >
-              <CreateMembershipForm onCreate={crearMembresia} />
-            </Section>
-          </div>
-        )}
 
         {/* 6) Entradas de hoy */}
         <div id="sec-asistencia">

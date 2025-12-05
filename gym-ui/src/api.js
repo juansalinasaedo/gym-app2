@@ -127,6 +127,7 @@ export async function apiCrearCliente(payload) {
 export async function apiGetMembresias() {
   return fetchJson(`${API_BASE}/api/membresias`);
 }
+
 export async function apiCrearMembresia(payload) {
   return fetchJson(`${API_BASE}/api/membresias`, {
     method: "POST",
@@ -134,6 +135,13 @@ export async function apiCrearMembresia(payload) {
     body: JSON.stringify(payload),
   });
 }
+
+export async function apiEliminarMembresia(id) {
+  return fetchJson(`${API_BASE}/api/membresias/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export async function apiGetMembresiaActiva(clienteId) {
   return fetchJson(`${API_BASE}/api/clientes/${clienteId}/membresias/activa`);
 }
@@ -217,24 +225,31 @@ export async function apiAsistenciasRango(desde, hasta) {
 export async function apiGetPagosHoy() {
   return fetchJson(`${API_BASE}/api/pagos/hoy`);
 }
-// src/api.js
+
 export async function apiExportPagosExcel(desde, hasta) {
   const params = new URLSearchParams();
   if (desde) params.append("desde", desde);
   if (hasta) params.append("hasta", hasta);
 
-  const res = await fetch(
-    `${API_BASE}/api/reportes/pagos_excel?${params.toString()}`,
-    {
-      credentials: "include",
-    }
-  );
+  // OJO: agregamos /api/ igual que en el resto de endpoints
+  const url = `${API_BASE}/api/reportes/pagos/excel?${params.toString()}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include",
+    headers: {
+      ...getAuthHeaders(), // opcional, por si en futuro usas token
+    },
+  });
 
   if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error("Error al generar Excel:", res.status, text);
     throw new Error("Error al generar Excel");
   }
 
-  return await res.blob();
+  const blob = await res.blob();
+  return blob;
 }
 
 /* ===== Vencimientos ===== */

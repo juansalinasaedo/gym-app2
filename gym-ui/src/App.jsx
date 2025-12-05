@@ -4,6 +4,7 @@ import AttendanceDashboard from "./pages/AttendanceDashboard";
 import { Routes, Route, Link, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import Protected from "./components/Protected";
+import MembershipsAdmin from "./pages/MembershipsAdmin";
 
 import CashierPanel from "./CashierPanel";
 import AdminUsers from "./components/admin/AdminUsers";
@@ -47,18 +48,17 @@ function HeaderBar() {
 
           {isAdmin && (
             <>
+              <Link to="/planes" className="hover:text-gray-300">
+                Planes
+              </Link>
+
               <button
                 className="hover:text-gray-300"
-                onClick={() => goTo("sec-crearplan")}
+                onClick={() => goTo("sec-caja")}
               >
-                Crear plan
-              </button>
-
-              <button className="hover:text-gray-300" onClick={() => goTo("sec-caja")}>
                 Caja del día
               </button>
 
-              {/* 🔹 Nuevo link solo para admin: Dashboard de Asistencia */}
               <Link
                 to="/dashboard/asistencia"
                 className="hover:text-gray-300"
@@ -140,6 +140,17 @@ export default function App() {
           }
         />
 
+      <Route
+        path="/planes"
+        element={
+          <Protected roles={["admin"]}>
+            <div className="max-w-6xl mx-auto p-4">
+              <MembershipsAdmin />
+            </div>
+          </Protected>
+        }
+      />
+        
         {/* 🔹 Dashboard de asistencia solo para admin */}
         <Route
           path="/dashboard/asistencia"
