@@ -52,11 +52,14 @@ export default function MembershipAssignRenew({
 
     setLoading(true);
     try {
-      await apiPagarYRenovar(Number(clienteId), {
+      await apiPagarYRenovar({
+        cliente_id: Number(clienteId),
+        accion: "asignar",
         membresia_id: Number(membresiaId),
         monto: Number(assignMonto),
         metodo_pago: assignMetodo,
       });
+
       setAssignMonto("");
       setMsg("✅ Asignación + pago realizados");
       onAfterChange?.();
@@ -79,10 +82,13 @@ export default function MembershipAssignRenew({
 
     setLoading(true);
     try {
-      await apiPagarYRenovar(Number(clienteId), {
+      await apiPagarYRenovar({
+        cliente_id: Number(clienteId),
+        accion: "renovar",
         monto: Number(renewMonto),
         metodo_pago: renewMetodo,
       });
+
       setRenewMonto("");
       setMsg("✅ Renovación + pago realizados");
       onAfterChange?.();

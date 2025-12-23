@@ -9,6 +9,7 @@ import MembershipsAdmin from "./pages/MembershipsAdmin";
 import CashierPanel from "./CashierPanel";
 import AdminUsers from "./components/admin/AdminUsers";
 import Login from "./pages/Login";
+import EditClientsAdmin from "./pages/EditClientsAdmin";
 
 function HeaderBar() {
   const { user, logout, isAdmin } = useAuth();
@@ -66,6 +67,12 @@ function HeaderBar() {
                 Dashboard asistencia
               </Link>
             </>
+          )}
+
+          {isAdmin && (
+            <Link to="/admin/clientes" className="hover:text-gray-300">
+              Editar clientes
+            </Link>
           )}
 
           <button
@@ -159,6 +166,15 @@ export default function App() {
               <div className="max-w-6xl mx-auto p-4">
                 <AttendanceDashboard />
               </div>
+            </Protected>
+          }
+        />
+
+        <Route
+          path="/admin/clientes"
+          element={
+            <Protected roles={["admin"]}>
+              <EditClientsAdmin />
             </Protected>
           }
         />

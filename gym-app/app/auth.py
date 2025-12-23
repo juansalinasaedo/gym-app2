@@ -84,6 +84,7 @@ def login():
     # Cookie de sesión (Flask)
     session["user_id"] = u.user_id
     session["role"] = u.role
+    session["user_role"] = u.role
     session["last_active"] = time.time()
     return jsonify({"user": _user_to_dict(u)}), 200
 

@@ -172,6 +172,69 @@ def crear_cliente():
     }), 201
 
 
+# -------------------- Modificacion datos clientes --------------------
+
+@bp.route("/clientes/<int:cliente_id>", methods=["GET"])
+def get_cliente(cliente_id):
+    # SOLO admin
+    if request.cookies.get("session") is None:
+        return jsonify({"error": "auth_required"}), 401
+    # si usas session flask:
+    from flask import session
+    if session.get("role") != "admin":
+        return jsonify({"error": "forbidden"}), 403
+
+    c = Cliente.query.get_or_404(cliente_id)
+    return jsonify({
+        "cliente_id": c.cliente_id,
+        "nombre": c.nombre,
+        "apellido": c.apellido,
+        "rut": c.rut,
+        "email": c.email,
+        "telefono": c.telefono,
+        "direccion": c.direccion,
+        "estado": c.estado,
+        "estado_laboral": c.estado_laboral,
+        "sexo": c.sexo,
+        "fecha_nacimiento": c.fecha_nacimiento.isoformat() if c.fecha_nacimiento else None,
+    })
+
+
+@bp.route("/clientes/<int:cliente_id>", methods=["PUT"])
+def update_cliente(cliente_id):
+    from flask import session
+    if not session.get("user_id"):
+        return jsonify({"error": "auth_required"}), 401
+    if session.get("role") != "admin":
+        return jsonify({"error": "forbidden"}), 403
+
+    c = Cliente.query.get_or_404(cliente_id)
+    data = request.get_json(silent=True) or {}
+
+    # Campos editables (whitelist)
+    editable = {
+        "nombre", "apellido", "rut", "email", "telefono", "direccion",
+        "estado", "estado_laboral", "sexo", "fecha_nacimiento"
+    }
+
+    for k, v in data.items():
+        if k not in editable:
+            continue
+        setattr(c, k, v)
+
+    # Si fecha viene como "YYYY-MM-DD"
+    if "fecha_nacimiento" in data and data["fecha_nacimiento"]:
+        from datetime import date
+        y, m, d = map(int, data["fecha_nacimiento"].split("-"))
+        c.fecha_nacimiento = date(y, m, d)
+
+    try:
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "No se pudo actualizar el cliente"}), 400
+
 # -------------------- QR de clientes --------------------
 @bp.get("/clientes/<int:cliente_id>/qr")
 @login_required
@@ -711,7 +774,14 @@ def asistencias_rango_excel():
 @bp.post("/asistencias")
 @login_required
 def registrar_asistencia():
-    payload = request.json or {}
+    payload = request.get_json(silent=True)
+    # Algunos fetch pueden mandar un número (cliente_id) directo; normalizamos a dict
+    if payload is None:
+        payload = {}
+    if isinstance(payload, (int, str)):
+        payload = {"cliente_id": payload}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "payload inválido"}), 400
     cliente_id = payload.get("cliente_id")
     if not cliente_id:
         return jsonify({"error": "cliente_id es obligatorio"}), 400
@@ -1216,6 +1286,29 @@ def pagar_membresia(cliente_id):
     )
 
 
+# Compatibilidad FE: endpoint antiguo/alternativo usado por el UI
+@bp.route("/membresias/pagar-renovar", methods=["POST", "OPTIONS"])
+@login_required
+def pagar_renovar_membresia():
+    # Preflight CORS
+    payload = request.get_json(silent=True)
+    print("PAYLOAD RECIBIDO:", payload)
+    if request.method == "OPTIONS":
+        return ("", 200)
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "payload inválido"}), 400
+
+    cliente_id = payload.get("cliente_id") or payload.get("clienteId")
+    if not cliente_id:
+        return jsonify({"error": "cliente_id es obligatorio"}), 400
+
+    # Reutiliza la misma lógica del endpoint canónico:
+    # POST /clientes/<id>/pagar-membresia
+    # (asigna plan + registra pago; bloquea si hay membresía activa vigente)
+    return pagar_membresia(int(cliente_id))
+
 # ----------------- Reporte Excel de pagos (últimos 30 días por defecto) -----------------
 @bp.get("/reportes/pagos/excel")
 @login_required
@@ -1298,44 +1391,38 @@ def reporte_pagos_excel():
 
 
 # -------------------- CLIENTES PRÓXIMOS A VENCER --------------------
-@bp.get("/vencimientos_proximos")
+@bp.get("/vencimientos/proximos")
 @login_required
 def vencimientos_proximos():
     hoy = date.today()
-    limite = hoy + timedelta(days=3)
+    limite = hoy + timedelta(days=7)
 
+    # Membresías activas que vencen en los próximos 7 días
     rows = (
-        db.session.query(
-            ClienteMembresia.cliente_membresia_id,
-            ClienteMembresia.fecha_fin,
-            Cliente.nombre,
-            Cliente.apellido,
-            Cliente.rut,
-            Membresia.nombre.label("nombre_plan"),
-        )
+        ClienteMembresia.query
         .join(Cliente, Cliente.cliente_id == ClienteMembresia.cliente_id)
-        .join(Membresia, Membresia.membresia_id == ClienteMembresia.membresia_id)
-        .filter(
-            ClienteMembresia.estado == "activa",
-            func.date(ClienteMembresia.fecha_fin) >= hoy,
-            func.date(ClienteMembresia.fecha_fin) <= limite,
-        )
+        .filter(ClienteMembresia.estado == "activa")
+        .filter(ClienteMembresia.fecha_fin >= hoy)
+        .filter(ClienteMembresia.fecha_fin <= limite)
         .order_by(ClienteMembresia.fecha_fin.asc())
         .all()
     )
 
-    data = [{
-        "cliente_membresia_id": cm_id,
-        "nombre": nombre,
-        "apellido": apellido,
-        "rut": rut,
-        "nombre_plan": nombre_plan,
-        "fecha_fin": str(fecha_fin),
-        "dias_restantes": (fecha_fin - hoy).days,
-    } for cm_id, fecha_fin, nombre, apellido, rut, nombre_plan in rows]
+    data = []
+    for cm in rows:
+        c = cm.cliente
+        dias = (cm.fecha_fin - hoy).days if cm.fecha_fin else None
+        data.append({
+            "cliente_id": c.cliente_id,
+            "nombre": c.nombre,
+            "apellido": c.apellido,
+            "rut": c.rut,
+            "fecha_fin": cm.fecha_fin.isoformat() if cm.fecha_fin else None,
+            "dias_restantes": dias,
+            "membresia": cm.membresia.nombre if cm.membresia else None,
+        })
 
-    return jsonify({"vencimientos": data})
-
+    return jsonify(data), 200
 
 @bp.get("/dashboard/asistencia/semana")
 @login_required
@@ -1430,3 +1517,70 @@ def dashboard_mejores_horas():
     ]
 
     return jsonify({"mejores_horas": data})
+
+# --- NUEVO: obtener 1 cliente (solo admin) ---
+@bp.get("/clientes/<int:cliente_id>")
+@login_required
+@roles_required("admin")
+def obtener_cliente(cliente_id):
+    c = Cliente.query.get_or_404(cliente_id)
+    return jsonify({
+        "cliente_id": c.cliente_id,
+        "nombre": c.nombre,
+        "apellido": c.apellido,
+        "rut": c.rut,
+        "email": c.email,
+        "telefono": c.telefono,
+        "direccion": c.direccion,
+        "estado": c.estado,
+        "estado_laboral": c.estado_laboral,
+        "sexo": c.sexo,
+        "fecha_nacimiento": c.fecha_nacimiento.isoformat() if c.fecha_nacimiento else None,
+    })
+
+
+# --- NUEVO: actualizar cliente (solo admin) ---
+@bp.put("/clientes/<int:cliente_id>")
+@login_required
+@roles_required("admin")
+def actualizar_cliente(cliente_id):
+    c = Cliente.query.get_or_404(cliente_id)
+    payload = request.json or {}
+
+    # whitelist de campos editables
+    editable = {
+        "nombre", "apellido", "rut", "email", "telefono", "direccion",
+        "estado", "estado_laboral", "sexo", "fecha_nacimiento"
+    }
+
+    # Validación especial de RUT duplicado (si viene)
+    if "rut" in payload:
+        new_rut = (payload.get("rut") or "").strip()
+        if new_rut:
+            existe = Cliente.query.filter(
+                Cliente.rut == new_rut,
+                Cliente.cliente_id != c.cliente_id
+            ).first()
+            if existe:
+                return jsonify({"error": "Ya existe un cliente registrado con ese RUT"}), 400
+
+    # aplicar cambios
+    for k in editable:
+        if k in payload and k != "fecha_nacimiento":
+            setattr(c, k, payload.get(k))
+
+    # fecha_nacimiento: "YYYY-MM-DD" -> date
+    if "fecha_nacimiento" in payload:
+        fn = payload.get("fecha_nacimiento")
+        if fn:
+            y, m, d = map(int, fn.split("-"))
+            c.fecha_nacimiento = date(y, m, d)
+        else:
+            c.fecha_nacimiento = None
+
+    try:
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "Error al actualizar cliente"}), 400

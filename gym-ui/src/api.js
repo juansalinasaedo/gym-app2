@@ -1,76 +1,108 @@
 // src/api.js
-// DESPUÉS
 export const API_BASE = import.meta.env.VITE_API_BASE || "";
-const json = { "Content-Type": "application/json" };
 
-// === NUEVO: leer token guardado en localStorage ===
-function getAuthHeaders() {
-  // Usa la misma key que vas a usar en AuthProvider.jsx
-  const token = localStorage.getItem("authToken");
-  return token ? { Authorization: `Bearer ${token}` } : {};
+// -------------------- helpers --------------------
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+// Si usas auth por cookie (session), esto basta.
+// Si en el futuro agregas Bearer token, puedes extender acá.
+function authHeaders() {
+  return {};
 }
 
-// -------- helpers ----------
-async function fetchJson(url, opts = {}) {
-  const mergedHeaders = {
-    ...getAuthHeaders(),
-    ...(opts.headers || {}),
-  };
+function normalizeDateInput(s) {
+  // acepta "YYYY-MM-DD" o "DD-MM-YYYY"
+  if (!s) return "";
+  const str = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(str)) {
+    const [dd, mm, yyyy] = str.split("-");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return str; // deja tal cual si viene en otro formato
+}
 
+async function readJsonSafe(res) {
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchJson(url, opts = {}) {
   const res = await fetch(url, {
     credentials: "include",
     ...opts,
-    headers: mergedHeaders,
+    headers: {
+      ...authHeaders(),
+      ...(opts.headers || {}),
+    },
   });
 
-  const ct = res.headers.get("content-type") || "";
+  const data = await readJsonSafe(res);
 
   if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      if (ct.includes("application/json")) {
-        const j = await res.json();
-        msg = j?.detail || j?.error || msg;
-      } else {
-        msg = await res.text();
-      }
-    } catch {}
+    const msg =
+      data?.detail ||
+      data?.error ||
+      data?.message ||
+      (await res.text().catch(() => "")) ||
+      `HTTP ${res.status}`;
     throw new Error(msg);
   }
-  return ct.includes("application/json") ? res.json() : res;
+
+  // si no vino JSON, devolvemos null (para endpoints que no son JSON)
+  return data;
 }
 
-async function doJson(url, opts = {}) {
-  const mergedHeaders = {
-    ...json,
-    ...getAuthHeaders(),
-    ...(opts.headers || {}),
-  };
-
+export async function doJson(url, opts = {}) {
   const res = await fetch(url, {
-    headers: mergedHeaders,
     credentials: "include",
     ...opts,
+    headers: {
+      ...JSON_HEADERS,
+      ...authHeaders(),
+      ...(opts.headers || {}),
+    },
   });
 
-  const ct = res.headers.get("content-type") || "";
+  const data = await readJsonSafe(res);
 
   if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      if (ct.includes("application/json")) {
-        const j = await res.json();
-        msg = j?.detail || j?.error || msg;
-      } else {
-        msg = await res.text();
-      }
-    } catch {}
+    const msg =
+      data?.detail ||
+      data?.error ||
+      data?.message ||
+      (await res.text().catch(() => "")) ||
+      `HTTP ${res.status}`;
     throw new Error(msg);
   }
-  return res.json();
+
+  return data;
 }
 
-/* ===== Auth ===== */
+async function downloadBlob(url) {
+  const res = await fetch(url, { method: "GET", credentials: "include" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return await res.blob();
+}
+
+function qsFromRange(from, to) {
+  const f = normalizeDateInput(from);
+  const t = normalizeDateInput(to);
+  const params = new URLSearchParams();
+  if (f) params.set("from", f);
+  if (t) params.set("to", t);
+  return params.toString();
+}
+
+// -------------------- AUTH --------------------
 export async function apiLogin(email, password) {
   return doJson(`${API_BASE}/auth/login`, {
     method: "POST",
@@ -81,12 +113,137 @@ export async function apiLogout() {
   return doJson(`${API_BASE}/auth/logout`, { method: "POST" });
 }
 export async function apiMe() {
-  return doJson(`${API_BASE}/auth/me`);
+  // tu backend responde OK con GET, pero si lo tienes como POST igual funciona con doJson.
+  return fetchJson(`${API_BASE}/auth/me`);
 }
 
-/* ===== Admin usuarios ===== */
+// -------------------- CLIENTES --------------------
+export async function apiGetClientes() {
+  return fetchJson(`${API_BASE}/api/clientes`);
+}
+export async function apiCrearCliente(payload) {
+  return doJson(`${API_BASE}/api/clientes`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+export async function apiGetCliente(clienteId) {
+  return fetchJson(`${API_BASE}/api/clientes/${clienteId}`);
+}
+export async function apiUpdateCliente(clienteId, payload) {
+  return doJson(`${API_BASE}/api/clientes/${clienteId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+// -------------------- MEMBRESÍAS --------------------
+export async function apiGetMembresias() {
+  return fetchJson(`${API_BASE}/api/membresias`);
+}
+export async function apiCrearMembresia(payload) {
+  return doJson(`${API_BASE}/api/membresias`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+export async function apiUpdateMembresia(membresiaId, payload) {
+  return doJson(`${API_BASE}/api/membresias/${membresiaId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+export async function apiDeleteMembresia(membresiaId) {
+  return fetchJson(`${API_BASE}/api/membresias/${membresiaId}`, {
+    method: "DELETE",
+  });
+}
+// alias por compatibilidad si en el front llamas "apiEliminarMembresia"
+export const apiEliminarMembresia = apiDeleteMembresia;
+
+export async function apiGetMembresiaActiva(clienteId) {
+  return fetchJson(`${API_BASE}/api/clientes/${clienteId}/membresias/activa`);
+}
+
+export async function apiPagarYRenovar(payload) {
+  return doJson(`${API_BASE}/api/membresias/pagar-renovar`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// -------------------- ASISTENCIAS --------------------
+export async function apiGetAsistenciasHoy() {
+  return fetchJson(`${API_BASE}/api/asistencias/hoy`);
+}
+
+export async function apiMarcarAsistencia(payload) {
+  return doJson(`${API_BASE}/api/asistencias`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiMarcarAsistenciaQR(payload) {
+  return doJson(`${API_BASE}/api/asistencias/qr`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// OJO: el backend espera from/to (YYYY-MM-DD). :contentReference[oaicite:2]{index=2}
+export async function apiAsistenciasRango(from, to) {
+  const qs = qsFromRange(from, to);
+  if (!qs.includes("from=") || !qs.includes("to=")) {
+    throw new Error("from_and_to_required");
+  }
+  return fetchJson(`${API_BASE}/api/asistencias/rango?${qs}`);
+}
+
+// -------------------- PAGOS / CAJA --------------------
+export async function apiGetPagosHoy() {
+  return fetchJson(`${API_BASE}/api/pagos/hoy`);
+}
+
+export async function apiGetCierreHoy() {
+  return fetchJson(`${API_BASE}/api/caja/cierre/hoy`);
+}
+
+export async function apiCrearCierreCaja(payload) {
+  return doJson(`${API_BASE}/api/caja/cierre`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Excel Pagos (fallback entre endpoints, porque en tu front aparece /api/pagos/export)
+export async function apiExportPagosExcel(desde, hasta) {
+  const qs = qsFromRange(desde, hasta);
+
+  // 1) endpoint que tu UI está intentando usar
+  const url1 = `${API_BASE}/api/pagos/export${qs ? `?${qs}` : ""}`;
+  try {
+    return await downloadBlob(url1);
+  } catch (e) {
+    // 2) fallback alternativo (si tu backend lo tiene así)
+    const url2 = `${API_BASE}/api/reportes/pagos/excel${qs ? `?${qs}` : ""}`;
+    return await downloadBlob(url2);
+  }
+}
+
+// -------------------- VENCIMIENTOS / DASHBOARD --------------------
+export async function apiGetDashboardResumen() {
+  return fetchJson(`${API_BASE}/api/dashboard/resumen`);
+}
+
+export async function apiGetVencimientosProximos(params = "") {
+  const url = `${API_BASE}/api/vencimientos/proximos${params ? `?${params}` : ""}`;
+  return fetchJson(url);
+}
+
+// -------------------- ADMIN USUARIOS (si aplica) --------------------
 export async function apiUsersList() {
-  return doJson(`${API_BASE}/auth/users`);
+  return fetchJson(`${API_BASE}/auth/users`);
 }
 export async function apiUsersCreate(payload) {
   return doJson(`${API_BASE}/auth/users`, {
@@ -103,176 +260,9 @@ export async function apiUsersToggle(userId, enabled) {
 export async function apiUsersDelete(userId) {
   return doJson(`${API_BASE}/auth/users/${userId}`, { method: "DELETE" });
 }
-// Resetear password de un usuario (solo admin)
 export async function apiUsersResetPassword(userId, password) {
   return doJson(`${API_BASE}/auth/users/${userId}/password`, {
     method: "PATCH",
     body: JSON.stringify({ password }),
-  });
-}
-
-/* ===== Clientes ===== */
-export async function apiGetClientes() {
-  return fetchJson(`${API_BASE}/api/clientes`);
-}
-export async function apiCrearCliente(payload) {
-  return fetchJson(`${API_BASE}/api/clientes`, {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify(payload),
-  });
-}
-
-/* ===== Membresías ===== */
-export async function apiGetMembresias() {
-  return fetchJson(`${API_BASE}/api/membresias`);
-}
-
-export async function apiCrearMembresia(payload) {
-  return fetchJson(`${API_BASE}/api/membresias`, {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function apiEliminarMembresia(id) {
-  return fetchJson(`${API_BASE}/api/membresias/${id}`, {
-    method: "DELETE",
-  });
-}
-
-export async function apiGetMembresiaActiva(clienteId) {
-  return fetchJson(`${API_BASE}/api/clientes/${clienteId}/membresias/activa`);
-}
-
-/* ===== Asignar/Renovar + Pago ===== */
-/**
- * Unifica asignar y renovar membresía + registrar el pago.
- * El backend expone /api/clientes/<id>/pagar-membresia
- */
-export async function apiPagarYRenovar(clienteId, body) {
-  return fetchJson(
-    `${API_BASE}/api/clientes/${clienteId}/pagar-membresia`,
-    {
-      method: "POST",
-      headers: json,
-      body: JSON.stringify(body),
-    }
-  );
-}
-
-/* ===== Asistencias ===== */
-export async function apiGetAsistenciasHoy() {
-  return fetchJson(`${API_BASE}/api/asistencias/hoy`);
-}
-
-export async function apiMarcarAsistencia(clienteId, tipo = "entrada") {
-  // sanity checks
-  if (clienteId === undefined || clienteId === null || `${clienteId}`.trim() === "") {
-    throw new Error("clienteId vacío");
-  }
-  const cid = Number(clienteId);
-  if (Number.isNaN(cid)) {
-    throw new Error("clienteId no numérico");
-  }
-
-  const res = await fetch(`${API_BASE}/api/asistencias`, {
-    method: "POST",
-    credentials: "include",
-    headers: json,
-    // Enviamos ambas claves por compatibilidad con el backend
-    body: JSON.stringify({ cliente_id: cid, clienteId: cid, tipo: tipo || "entrada" }),
-  });
-
-  const ct = res.headers.get("content-type") || "";
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      if (ct.includes("application/json")) {
-        const j = await res.json();
-        msg = j?.detail || j?.error || msg;
-      } else {
-        msg = await res.text();
-      }
-    } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-/** NUEVO: registrar asistencia usando token QR */
-export async function apiMarcarAsistenciaQR(token) {
-  const t = (token || "").trim();
-  if (!t) {
-    throw new Error("token vacío");
-  }
-
-  // Usa el helper fetchJson para manejar auth + errores
-  return fetchJson(`${API_BASE}/api/asistencias/qr`, {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify({ token: t }),
-  });
-}
-
-export async function apiAsistenciasRango(desde, hasta) {
-  const qs = new URLSearchParams({ from: desde, to: hasta }).toString();
-  return fetchJson(`${API_BASE}/api/asistencias/rango?${qs}`);
-}
-
-/* ===== Pagos / Caja ===== */
-export async function apiGetPagosHoy() {
-  return fetchJson(`${API_BASE}/api/pagos/hoy`);
-}
-
-export async function apiExportPagosExcel(desde, hasta) {
-  const params = new URLSearchParams();
-  if (desde) params.append("desde", desde);
-  if (hasta) params.append("hasta", hasta);
-
-  // OJO: agregamos /api/ igual que en el resto de endpoints
-  const url = `${API_BASE}/api/reportes/pagos/excel?${params.toString()}`;
-
-  const res = await fetch(url, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      ...getAuthHeaders(), // opcional, por si en futuro usas token
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    console.error("Error al generar Excel:", res.status, text);
-    throw new Error("Error al generar Excel");
-  }
-
-  const blob = await res.blob();
-  return blob;
-}
-
-/* ===== Vencimientos ===== */
-export async function apiGetVencimientosProximos() {
-  return fetchJson(`${API_BASE}/api/vencimientos_proximos`);
-}
-
-/* ===== Dashboard ===== */
-export async function apiGetDashboardResumen() {
-  return fetchJson(`${API_BASE}/api/dashboard/resumen`);
-}
-
-
-/* ===== Caja / Cierres ===== */
-
-export async function apiGetCierreHoy() {
-  return fetchJson(`${API_BASE}/api/caja/cierre/hoy`);
-}
-
-export async function apiCrearCierreCaja(payload) {
-  return fetchJson(`${API_BASE}/api/caja/cierre`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
   });
 }

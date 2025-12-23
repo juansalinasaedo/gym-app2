@@ -13,25 +13,39 @@ export default function AssistsRange() {
   const buildQS = (params) => new URLSearchParams(params).toString();
 
   const onSearch = async () => {
-    if (!desde || !hasta) return;
+    if (!desde || !hasta) {
+      alert("Debes indicar desde y hasta");
+      return;
+    }
+  
     // Normaliza rango si el usuario los invierte
     const d1 = new Date(desde);
     const d2 = new Date(hasta);
     const from = d1 <= d2 ? desde : hasta;
-    const to = d1 <= d2 ? hasta : desde;
-
+    const to   = d1 <= d2 ? hasta : desde;
+  
     try {
       setLoading(true);
+  
       const data = await apiAsistenciasRango(from, to);
-      setItems(Array.isArray(data) ? data : (data.items || []));
+  
+      // data puede venir como array, como {items: []}, o null
+      const safeItems = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.items)
+          ? data.items
+          : [];
+  
+      setItems(safeItems);
     } catch (e) {
       console.error(e);
-      alert("Error al buscar asistencias.");
+      alert(`Error al buscar asistencias: ${e?.message || "desconocido"}`);
+      setItems([]);
     } finally {
       setLoading(false);
     }
-  };
-
+  };  
+  
   const handleExportExcel = () => {
     if (!desde || !hasta || items.length === 0) return;
 

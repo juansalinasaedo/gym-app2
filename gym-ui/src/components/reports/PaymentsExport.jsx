@@ -11,6 +11,9 @@ export default function PaymentsExport() {
     try {
       setDownloading(true);
 
+      const params = new URLSearchParams();
+      if (desde) params.set("desde", desde);  // "YYYY-MM-DD"
+      if (hasta) params.set("hasta", hasta);  
       // Llamamos a la API
       const blob = await apiExportPagosExcel(desde, hasta);
 

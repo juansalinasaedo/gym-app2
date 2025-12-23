@@ -8,6 +8,7 @@ from datetime import timedelta
 
 db = SQLAlchemy()
 
+
 def create_app():
     load_dotenv()  # lee .env localmente
 
@@ -16,23 +17,23 @@ def create_app():
     app.config["SECRET_KEY"] = getenv("SECRET_KEY", "dev-secret-key")
     app.config["SQLALCHEMY_DATABASE_URI"] = getenv("DATABASE_URL", "sqlite:///gym.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=10)  # por ejemplo 10 min
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=10)
 
-    # 👇 NUEVO: configuración de cookies según entorno
+    # 👇 configuración de cookies según entorno
     is_production = getenv("FLASK_ENV") == "production" or getenv("RENDER") == "true"
 
     if is_production:
-        # En Render (HTTPS + dominios distintos)
+        # Producción (Render: HTTPS + dominios distintos)
         app.config["SESSION_COOKIE_SAMESITE"] = "None"
         app.config["SESSION_COOKIE_SECURE"] = True
     else:
-        # En local (HTTP)
+        # Local (HTTP)
         app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
         app.config["SESSION_COOKIE_SECURE"] = False
 
     # ---------- CORS dinámico ----------
-    # En Render, pon ALLOWED_ORIGINS = https://gym-app2-1.onrender.com
-    # (y opcionalmente también los localhost para desarrollo)
+    # En Render, pon ALLOWED_ORIGINS = https://TU-FRONT.onrender.com
+    # (y opcionalmente también localhost para desarrollo)
     raw_origins = getenv(
         "ALLOWED_ORIGINS",
         "http://127.0.0.1:5173,http://localhost:5173"
@@ -48,6 +49,10 @@ def create_app():
 
     db.init_app(app)
 
+    # ✅ Register CLI commands (import tardío para evitar circular import)
+    from .commands import register_commands
+    register_commands(app)
+
     # Blueprints
     from .auth import auth_bp
     app.register_blueprint(auth_bp)
@@ -59,18 +64,21 @@ def create_app():
         from . import models
         db.create_all()
 
-    # Helpers de protección
+    # Helpers de protección (se usan desde routes.py)
     def login_required(fn):
         from functools import wraps
+
         @wraps(fn)
         def wrapper(*args, **kwargs):
             if not session.get("user_id"):
                 return jsonify({"error": "auth_required"}), 401
             return fn(*args, **kwargs)
+
         return wrapper
 
     def roles_required(*roles):
         from functools import wraps
+
         def deco(fn):
             @wraps(fn)
             def wrapper(*args, **kwargs):
@@ -78,7 +86,9 @@ def create_app():
                 if not r or r not in roles:
                     return jsonify({"error": "forbidden"}), 403
                 return fn(*args, **kwargs)
+
             return wrapper
+
         return deco
 
     app.login_required = login_required
