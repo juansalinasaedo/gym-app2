@@ -69,13 +69,13 @@ def pagar_y_renovar():
     metodo_pago = (payload.get("metodo_pago") or "").strip()
 
     if not cliente_id:
-        return jsonify({"error": "cliente_id es obligatorio"}), 400
+        return jsonify({"error": "cliente_id es obligatorio!"}), 400
 
     if not membresia_id:
-        return jsonify({"error": "membresia_id es obligatorio"}), 400
+        return jsonify({"error": "membresia_id es obligatorio!"}), 400
 
     if monto in (None, ""):
-        return jsonify({"error": "monto es obligatorio"}), 400
+        return jsonify({"error": "monto es obligatorio!"}), 400
 
     if not metodo_pago:
         return jsonify({"error": "metodo_pago es obligatorio"}), 400

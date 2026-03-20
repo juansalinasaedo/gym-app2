@@ -6,7 +6,7 @@ export default function TodayEntries({ items }) {
   if (!Array.isArray(items) || items.length === 0) {
     return (
       <div className="text-xs text-gray-500">
-        Aún no hay ingresos marcados hoy.
+        Aún no hay ingresos marcados hoy
       </div>
     );
   }
