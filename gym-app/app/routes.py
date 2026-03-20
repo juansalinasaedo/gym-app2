@@ -553,3 +553,4 @@ def asistencias_rango():
         })
 
     return jsonify(data)
+# DEBUG TEST
