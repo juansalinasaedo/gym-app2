@@ -237,7 +237,7 @@ export default function MembershipAssignRenew({
               }
               title={bloqueoPagos ? "Bloqueado por membresía activa" : ""}
             >
-              {loading ? "Procesando..." : "Renovar + pagar"}
+              {loading ? "Procesando... " : "Renovar + pagar"}
             </button>
           </div>
         </form>
