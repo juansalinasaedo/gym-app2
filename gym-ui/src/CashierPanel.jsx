@@ -21,6 +21,7 @@ import { useAsistenciasHoy } from "./hooks/useAsistenciasHoy";
 import { usePagosHoy } from "./hooks/usePagosHoy";
 import { useVencimientos } from "./hooks/useVencimientos";
 import { useAuth } from "./auth/AuthProvider";
+import FaceCheckin from "./components/FaceCheckin";
 
 // NUEVOS IMPORTS
 import DashboardSummary from "./components/dashboard/DashboardSummary";
@@ -52,7 +53,11 @@ export default function CashierPanel() {
     fetchPagos,
   } = usePagosHoy();
   const { vencimientos = [], fetchVencimientos } = useVencimientos();
-  const { info = null, activa = false } = useMembresiaActiva(clienteId || null);
+  const {
+    info = null,
+    activa = false,
+    refreshMembresia
+  } = useMembresiaActiva(clienteId || null);
 
   useEffect(() => {
     setMsg(null);
@@ -65,7 +70,18 @@ export default function CashierPanel() {
 
   const hit = asistencias.find((a) => String(a.cliente_id) === String(clienteId));
   const yaEntroHoy = !!hit;
-  const horaPrimeraEntrada = hit?.hora || "";
+
+  const formatHora = (fechaHora) => {
+    if (!fechaHora) return "";
+    const d = new Date(fechaHora);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString("es-CL", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const horaPrimeraEntrada = formatHora(hit?.fecha_hora);
 
   const onEntrada = async () => {
     try {
@@ -79,6 +95,7 @@ export default function CashierPanel() {
   const refreshAfterPayment = async () => {
     await fetchPagos();
     await fetchVencimientos();
+    await refreshMembresia();
   };
 
   const showClienteNoSel = !clienteId;
@@ -168,6 +185,18 @@ export default function CashierPanel() {
             </p>
           </div>
         )}
+
+        <div id="sec-face" className="mb-6">
+          <Section
+            title="0) Asistencia por rostro"
+            subtitle="Detecta al cliente con la cámara y confirma manualmente para registrar la asistencia."
+            variant="card"
+            icon="🙂"
+            hover
+          >
+            <FaceCheckin onSuccess={fetchAsistencias} />
+          </Section>
+        </div>
 
         {/* 1) Buscar Cliente */}
         <div id="sec-buscar">

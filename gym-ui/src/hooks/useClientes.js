@@ -10,15 +10,24 @@ export function useClientes() {
     try {
       const data = await apiGetClientes();
       setClientes(data);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  useEffect(() => { fetchClientes(); }, []);
+  useEffect(() => {
+    fetchClientes();
+  }, []);
 
   const crearCliente = async (payload) => {
     setLoading(true);
-    try { await apiCrearCliente(payload); await fetchClientes(); }
-    finally { setLoading(false); }
+    try {
+      const created = await apiCrearCliente(payload);
+      await fetchClientes();
+      return created; // importante: devolver respuesta con cliente_id
+    } finally {
+      setLoading(false);
+    }
   };
 
   return { clientes, fetchClientes, crearCliente, loading };

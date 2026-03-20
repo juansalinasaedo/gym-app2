@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiGetClientes } from "../api";
+import FaceEnrollPanel from "../components/clients/FaceEnrollPanel";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -161,6 +162,9 @@ export default function EditClientsAdmin() {
               >
                 {loading ? "Guardando..." : "Guardar cambios"}
               </button>
+              <div className="md:col-span-2">
+                <FaceEnrollPanel clienteId={form.cliente_id} />
+              </div>
             </div>
           )}
         </div>

@@ -2,22 +2,20 @@ import { useEffect, useState } from "react";
 import {
   apiGetMembresias,
   apiCrearMembresia,
-  apiEliminarMembresia,
+  apiDeleteMembresia,
+  apiUpdateMembresia,
 } from "../api";
 
 export function useMembresias() {
   const [membresias, setMembresias] = useState([]);
 
   const fetchMembresias = async () => {
-    try {
-      setMembresias(await apiGetMembresias());
-    } catch (e) {
-      console.error(e);
-    }
+    const data = await apiGetMembresias();
+    setMembresias(Array.isArray(data) ? data : []);
   };
 
   useEffect(() => {
-    fetchMembresias();
+    fetchMembresias().catch(console.error);
   }, []);
 
   const crearMembresia = async (payload) => {
@@ -26,9 +24,20 @@ export function useMembresias() {
   };
 
   const eliminarMembresia = async (id) => {
-    await apiEliminarMembresia(id);
+    await apiDeleteMembresia(id);
     await fetchMembresias();
   };
 
-  return { membresias, fetchMembresias, crearMembresia, eliminarMembresia };
+  const actualizarMembresia = async (id, payload) => {
+    await apiUpdateMembresia(id, payload);
+    await fetchMembresias();
+  };
+
+  return {
+    membresias,
+    fetchMembresias,
+    crearMembresia,
+    eliminarMembresia,
+    actualizarMembresia,
+  };
 }

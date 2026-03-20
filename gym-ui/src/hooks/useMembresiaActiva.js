@@ -1,19 +1,34 @@
-// src/hooks/useMembresiaActiva.js
 import { useEffect, useState } from "react";
 import { apiGetMembresiaActiva } from "../api";
 
 export function useMembresiaActiva(clienteId) {
   const [info, setInfo] = useState(null);
+  const [activa, setActiva] = useState(false);
+
+  const fetchMembresia = async () => {
+    if (!clienteId) {
+      setInfo(null);
+      setActiva(false);
+      return;
+    }
+
+    try {
+      const r = await apiGetMembresiaActiva(clienteId);
+      setInfo(r || null);
+      setActiva(r?.estado === "activa");
+    } catch (e) {
+      setInfo(null);
+      setActiva(false);
+    }
+  };
 
   useEffect(() => {
-    if (!clienteId) { setInfo(null); return; }
-    apiGetMembresiaActiva(clienteId)
-      .then(setInfo)
-      .catch(() => setInfo(null));
+    fetchMembresia();
   }, [clienteId]);
 
-  const activa =
-    !!info && info.estado === "activa" && Number(info.dias_restantes) >= 0;
-
-  return { info, activa };
+  return {
+    info,
+    activa,
+    refreshMembresia: fetchMembresia
+  };
 }

@@ -5,7 +5,7 @@ import CreateMembershipForm from "../components/memberships/CreateMembershipForm
 import Section from "../components/Section";
 
 export default function MembershipsAdmin() {
-  const { membresias, crearMembresia, eliminarMembresia } = useMembresias();
+  const { membresias, crearMembresia, eliminarMembresia, actualizarMembresia } = useMembresias();
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({
     nombre: "",

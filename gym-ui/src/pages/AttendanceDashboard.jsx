@@ -1,5 +1,5 @@
 // src/pages/AttendanceDashboard.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -18,51 +18,65 @@ import {
   Legend,
 } from "recharts";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5000";
 
 const PIE_COLORS = [
-  "#0f766e",
-  "#2563eb",
-  "#f97316",
-  "#a855f7",
-  "#e11d48",
-  "#059669",
-  "#7c3aed",
-  "#f59e0b",
-  "#3b82f6",
+  "#3B82F6", // azul
+  "#10B981", // verde
+  "#F59E0B", // ámbar
+  "#EF4444", // rojo
+  "#8B5CF6", // violeta
+  "#06B6D4", // cian
+  "#F97316", // naranjo
+  "#84CC16", // lima
+  "#EC4899", // rosado
+  "#14B8A6", // teal
 ];
 
-function parseDateSafe(iso) {
-  // evita problemas de huso horario usando año/mes/día separados
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
+function parseDateSafe(s) {
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function renderPieLabel({ percent }) {
+  if (!percent || percent <= 0) return "";
+  return `${(percent * 100).toFixed(0)}%`;
 }
 
 export default function AttendanceDashboard() {
-  const { isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const [dias, setDias] = useState([]);
-  const [horas, setHoras] = useState([]);
-  const [topClientes, setTopClientes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // ---- estados de ordenamiento ----
-  const [diasSortField, setDiasSortField] = useState("fecha"); // 'fecha' | 'cantidad'
-  const [diasSortAsc, setDiasSortAsc] = useState(true);
+  // data
+  const [dias, setDias] = useState([]);
+  const [horas, setHoras] = useState([]);
+  const [topClientes, setTopClientes] = useState([]);
 
-  const [horasSortField, setHorasSortField] = useState("hora"); // 'hora' | 'cantidad'
-  const [horasSortAsc, setHorasSortAsc] = useState(true);
+  // UI / ordenamiento
+  const [diasSortField, setDiasSortField] = useState("fecha");
+  const [diasSortDir, setDiasSortDir] = useState("asc");
 
-  const [sortTopAsistDesc, setSortTopAsistDesc] = useState(true); // true = más asistencias primero
+  const [topSortField, setTopSortField] = useState("cantidad");
+  const [topSortDir, setTopSortDir] = useState("desc");
+
+  // Validación robusta de admin
+  const isAdmin = String(user?.role || "").toLowerCase() === "admin";
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!user) return;
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
 
     const fetchAll = async () => {
       try {
         setLoading(true);
+        setError("");
 
         const [r1, r2, r3] = await Promise.all([
           fetch(`${API_BASE}/api/dashboard/asistencia/dias`, {
@@ -83,15 +97,12 @@ export default function AttendanceDashboard() {
           setDias([]);
           setHoras([]);
           setTopClientes([]);
-
-          setTimeout(() => {
-            navigate("/login");
-          }, 800);
           return;
         }
 
-        if (!r1.ok || !r2.ok || !r3.ok) {
-          throw new Error("Error al cargar datos del dashboard de asistencia.");
+        if ([r1, r2, r3].some((r) => !r.ok)) {
+          const bad = [r1, r2, r3].find((r) => !r.ok);
+          throw new Error(`Error HTTP ${bad?.status}`);
         }
 
         const [d1, d2, d3] = await Promise.all([
@@ -100,12 +111,41 @@ export default function AttendanceDashboard() {
           r3.json(),
         ]);
 
-        setDias(d1 || []);
-        setHoras(d2 || []);
-        setTopClientes(d3 || []);
-        setError("");
+        // Normalización de datos
+        const diasNorm = (Array.isArray(d1) ? d1 : []).map((x) => ({
+          fecha: x.fecha,
+          cantidad: Number(x.cantidad ?? x.total ?? 0),
+        }));
+
+        const horasNorm = (Array.isArray(d2) ? d2 : []).map((x) => {
+          const raw = x.hora;
+          let hh = 0;
+
+          if (typeof raw === "string") {
+            hh = Number(raw.split(":")[0]);
+          } else {
+            hh = Number(raw);
+          }
+
+          return {
+            hora: Number.isFinite(hh) ? hh : 0,
+            cantidad: Number(x.cantidad ?? x.total ?? 0),
+          };
+        });
+
+        const topNorm = (Array.isArray(d3) ? d3 : []).map((x) => ({
+          cliente_id: x.cliente_id,
+          nombre: x.nombre || "",
+          apellido: x.apellido || "",
+          rut: x.rut || "",
+          cantidad: Number(x.cantidad ?? x.total ?? 0),
+        }));
+
+        setDias(diasNorm);
+        setHoras(horasNorm);
+        setTopClientes(topNorm);
       } catch (e) {
-        console.error(e);
+        console.error("Error cargando dashboard:", e);
         setError(e.message || "Error al cargar dashboard.");
         setDias([]);
         setHoras([]);
@@ -116,7 +156,77 @@ export default function AttendanceDashboard() {
     };
 
     fetchAll();
-  }, [isAdmin, navigate]);
+  }, [user, isAdmin]);
+
+  // ---------- datos derivados ----------
+  const pieData = useMemo(() => {
+    return topClientes.map((c) => ({
+      name: `${c.nombre} ${c.apellido}`.trim(),
+      value: Number(c.cantidad) || 0,
+    }));
+  }, [topClientes]);
+
+  const diasOrdenados = useMemo(() => {
+    return [...dias].sort((a, b) => {
+      let comp = 0;
+
+      if (diasSortField === "fecha") {
+        const da = parseDateSafe(a.fecha);
+        const db = parseDateSafe(b.fecha);
+        comp = (da?.getTime() || 0) - (db?.getTime() || 0);
+      } else if (diasSortField === "cantidad") {
+        comp = (Number(a.cantidad) || 0) - (Number(b.cantidad) || 0);
+      }
+
+      return diasSortDir === "asc" ? comp : -comp;
+    });
+  }, [dias, diasSortField, diasSortDir]);
+
+  const topOrdenados = useMemo(() => {
+    return [...topClientes].sort((a, b) => {
+      let comp = 0;
+
+      if (topSortField === "cantidad") {
+        comp = (Number(a.cantidad) || 0) - (Number(b.cantidad) || 0);
+      } else if (topSortField === "nombre") {
+        comp = `${a.nombre} ${a.apellido}`.localeCompare(
+          `${b.nombre} ${b.apellido}`
+        );
+      }
+
+      return topSortDir === "asc" ? comp : -comp;
+    });
+  }, [topClientes, topSortField, topSortDir]);
+
+  const horasRankingChartData = useMemo(() => {
+    return [...horas]
+      .map((h) => ({
+        hora: `${String(h.hora).padStart(2, "0")}:00`,
+        cantidad: Number(h.cantidad) || 0,
+      }))
+      .sort((a, b) => (b.cantidad || 0) - (a.cantidad || 0))
+      .slice(0, 10);
+  }, [horas]);
+
+  const diasChartData = useMemo(() => {
+    return diasOrdenados.map((d) => ({
+      fecha: d.fecha,
+      cantidad: Number(d.cantidad) || 0,
+    }));
+  }, [diasOrdenados]);
+
+  const noDias = diasChartData.length === 0;
+  const noTop = topClientes.length === 0;
+  const noHoras = horasRankingChartData.length === 0;
+
+  // Esperar a que cargue el usuario antes de validar permisos
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-sm text-gym-text-muted">Cargando usuario...</div>
+      </div>
+    );
+  }
 
   if (!isAdmin) {
     return (
@@ -131,311 +241,215 @@ export default function AttendanceDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-sm text-gym-text-muted">
-          Cargando dashboard de asistencia…
-        </div>
+        <div className="text-sm text-gym-text-muted">Cargando dashboard...</div>
       </div>
     );
   }
 
-  // ---------- datos derivados ----------
-
-  // Pie chart: top clientes del mes actual
-  const pieData = topClientes.map((c) => ({
-    name: `${c.nombre} ${c.apellido}`,
-    value: c.cantidad,
-  }));
-
-  // Ordenamiento de días
-  const diasOrdenados = [...dias].sort((a, b) => {
-    let comp;
-    if (diasSortField === "fecha") {
-      const da = parseDateSafe(a.fecha);
-      const db = parseDateSafe(b.fecha);
-      comp = da - db;
-    } else {
-      comp = a.cantidad - b.cantidad;
-    }
-    return diasSortAsc ? comp : -comp;
-  });
-
-  // Ordenamiento de horas
-  const horasOrdenadas = [...horas].sort((a, b) => {
-    let comp;
-    if (horasSortField === "hora") {
-      const ha = Number(a.hora);
-      const hb = Number(b.hora);
-      comp = ha - hb;
-    } else {
-      comp = a.cantidad - b.cantidad;
-    }
-    return horasSortAsc ? comp : -comp;
-  });
-
-  // Ranking de clientes (tabla)
-  const topClientesOrdenados = [...topClientes].sort((a, b) =>
-    sortTopAsistDesc ? b.cantidad - a.cantidad : a.cantidad - b.cantidad
-  );
-
-  // ---- series semanales (agregando por semana) ----
-  const semanasDataMap = new Map();
-
-  dias.forEach((d) => {
-    const date = parseDateSafe(d.fecha);
-    // lunes = 0, domingo = 6
-    const day = (date.getDay() + 6) % 7;
-    const monday = new Date(date);
-    monday.setDate(date.getDate() - day);
-    const key = monday.toISOString().slice(0, 10);
-
-    const current = semanasDataMap.get(key) || {
-      weekStart: key,
-      total: 0,
-    };
-    current.total += d.cantidad;
-    semanasDataMap.set(key, current);
-  });
-
-  const semanasData = Array.from(semanasDataMap.values()).sort((a, b) =>
-    a.weekStart.localeCompare(b.weekStart)
-  );
-
-  const semanasChartData = semanasData.map((w, idx) => ({
-    etiqueta: `Sem ${idx + 1}`,
-    total: w.total,
-  }));
-
-  // ---- series mensuales (comparación mes a mes) ----
-  const mesesDataMap = new Map();
-
-  dias.forEach((d) => {
-    const date = parseDateSafe(d.fecha);
-    const key = `${date.getFullYear()}-${String(
-      date.getMonth() + 1
-    ).padStart(2, "0")}`; // ej: 2025-11
-
-    const current = mesesDataMap.get(key) || {
-      mes: key,
-      total: 0,
-    };
-    current.total += d.cantidad;
-    mesesDataMap.set(key, current);
-  });
-
-  let mesesData = Array.from(mesesDataMap.values()).sort((a, b) =>
-    a.mes.localeCompare(b.mes)
-  );
-
-  // opcional: limitar a los últimos 6 meses
-  if (mesesData.length > 6) {
-    mesesData = mesesData.slice(-6);
-  }
-
-  const mesesChartData = mesesData.map((m) => ({
-    mes: m.mes, // ya viene year-month
-    total: m.total,
-  }));
-
-  // ---- ranking de mejores horarios ----
-  const horasRanking = [...horas].sort((a, b) => b.cantidad - a.cantidad);
-  const horasRankingTop = horasRanking.slice(0, 6); // top 6 para mostrar lindo
-
-  const horasRankingChartData = horasRankingTop.map((h) => ({
-    hora: `${h.hora.toString().padStart(2, "0")}:00`,
-    total: h.cantidad,
-  }));
-
-  // ---------- handlers de orden ----------
-
-  const handleSortDiasByFecha = () => {
-    setDiasSortField("fecha");
-    setDiasSortAsc((prev) => (diasSortField === "fecha" ? !prev : true));
-  };
-
-  const handleSortDiasByCantidad = () => {
-    setDiasSortField("cantidad");
-    setDiasSortAsc((prev) => (diasSortField === "cantidad" ? !prev : true));
-  };
-
-  const handleSortHorasByHora = () => {
-    setHorasSortField("hora");
-    setHorasSortAsc((prev) => (horasSortField === "hora" ? !prev : true));
-  };
-
-  const handleSortHorasByCantidad = () => {
-    setHorasSortField("cantidad");
-    setHorasSortAsc((prev) => (horasSortField === "cantidad" ? !prev : true));
-  };
-
-  // ---------- render ----------
-
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-6xl mx-auto px-6 py-8 text-[15px] md:text-[16px]">
+      <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-gym-text-main flex items-center gap-2">
-            <span>📊</span>
-            <span>Dashboard de Asistencia</span>
-          </h1>
+          <div>
+            <h1 className="text-2xl font-semibold text-gym-text">
+              Dashboard de asistencia
+            </h1>
+            <p className="text-sm text-gym-text-muted">
+              Tendencias y rankings del mes actual.
+            </p>
+          </div>
+
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="px-3 py-2 text-sm rounded-md bg-white border border-slate-200 hover:bg-slate-50"
+          >
+            Volver
+          </button>
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+        {error ? (
+          <div className="mb-6 px-4 py-3 rounded-md bg-rose-50 border border-rose-200 text-rose-900 text-sm">
             {error}
           </div>
-        )}
+        ) : null}
 
-        {/* Grid 1: visión diaria y horas peak */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* 1) Asistencias por día */}
-          <div className="bg-white rounded-2xl border border-gym-border shadow-sm p-5">
-            <h2 className="text-xl font-semibold mb-2">
-              Asistencias por día (últimos 30 días)
-            </h2>
-            <p className="text-sm text-gym-text-muted mb-3">
-              Tendencia de concurrencia diaria al gimnasio.
+        <div className="mb-6 bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="text-lg font-semibold text-gym-text">
+            Comparación mes a mes
+          </h2>
+          <p className="text-sm text-gym-text-muted">
+            Total de asistencias por mes (máx. últimos 6 meses).
+          </p>
+          <div className="mt-4">
+            <p className="text-sm text-gym-text-muted">
+              Se necesita al menos más de un mes de datos para comparar.
             </p>
-
-            {diasOrdenados.length === 0 ? (
-              <p className="text-sm text-gym-text-muted">
-                No hay asistencias registradas en los últimos 30 días.
-              </p>
-            ) : (
-              <div className="max-h-80 overflow-auto text-sm">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-xs uppercase text-gym-text-muted">
-                      <th
-                        className="py-2 px-2 text-left cursor-pointer select-none"
-                        onClick={handleSortDiasByFecha}
-                      >
-                        Fecha{" "}
-                        {diasSortField === "fecha"
-                          ? diasSortAsc
-                            ? "↑"
-                            : "↓"
-                          : ""}
-                      </th>
-                      <th
-                        className="py-2 px-2 text-right cursor-pointer select-none"
-                        onClick={handleSortDiasByCantidad}
-                      >
-                        Asistencias{" "}
-                        {diasSortField === "cantidad"
-                          ? diasSortAsc
-                            ? "↑"
-                            : "↓"
-                          : ""}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {diasOrdenados.map((d) => (
-                      <tr key={d.fecha} className="border-b border-slate-100">
-                        <td className="py-1.5 px-2">{d.fecha}</td>
-                        <td className="py-1.5 px-2 text-right">
-                          {d.cantidad}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* 2) Horas peak */}
-          <div className="bg-white rounded-2xl border border-gym-border shadow-sm p-5">
-            <h2 className="text-xl font-semibold mb-2">
-              Horas peak (últimos 30 días)
-            </h2>
-            <p className="text-sm text-gym-text-muted mb-3">
-              Distribución de asistencias por hora del día. Útil para ver
-              franjas horarias más concurridas.
-            </p>
-
-            {horasOrdenadas.length === 0 ? (
-              <p className="text-sm text-gym-text-muted">
-                No hay asistencias suficientes para calcular horas peak.
-              </p>
-            ) : (
-              <div className="max-h-80 overflow-auto text-sm">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-xs uppercase text-gym-text-muted">
-                      <th
-                        className="py-2 px-2 text-left cursor-pointer select-none"
-                        onClick={handleSortHorasByHora}
-                      >
-                        Hora{" "}
-                        {horasSortField === "hora"
-                          ? horasSortAsc
-                            ? "↑"
-                            : "↓"
-                          : ""}
-                      </th>
-                      <th
-                        className="py-2 px-2 text-right cursor-pointer select-none"
-                        onClick={handleSortHorasByCantidad}
-                      >
-                        Asistencias{" "}
-                        {horasSortField === "cantidad"
-                          ? horasSortAsc
-                            ? "↑"
-                            : "↓"
-                          : ""}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {horasOrdenadas.map((h) => (
-                      <tr key={h.hora} className="border-b border-slate-100">
-                        <td className="py-1.5 px-2">
-                          {h.hora.toString().padStart(2, "0")}:00
-                        </td>
-                        <td className="py-1.5 px-2 text-right">
-                          {h.cantidad}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Grid 2: vista semanal + comparaciones mes a mes */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* 3) Gráfico semanal */}
-          <div className="bg-white rounded-2xl border border-gym-border shadow-sm p-5">
-            <h2 className="text-xl font-semibold mb-2">
-              Asistencias por semana
-            </h2>
-            <p className="text-sm text-gym-text-muted mb-3">
-              Resumen de concurrencia agrupado por semanas calendario.
-            </p>
+        <div className="mb-6 bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="text-lg font-semibold text-gym-text">
+            Clientes con mayor asistencia (mes actual)
+          </h2>
+          <p className="text-sm text-gym-text-muted">
+            Ranking de los clientes que más han asistido en el mes.
+          </p>
 
-            {semanasChartData.length === 0 ? (
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="min-h-[280px]">
+              {noTop ? (
+                <div className="p-4 rounded-md border border-slate-200 text-sm text-gym-text-muted">
+                  Aún no hay asistencias registradas este mes.
+                </div>
+              ) : (
+                <div className="w-full">
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        outerRadius={90}
+                        label={renderPieLabel}
+                        labelLine={true}
+                      >
+                        {pieData.map((_, idx) => (
+                          <Cell
+                            key={`cell-${idx}`}
+                            fill={PIE_COLORS[idx % PIE_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value, name) => [value, name]}
+                      />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <p className="text-center text-xs text-gym-text-muted mt-2">
+                    Distribución de asistencias por cliente (Top).
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="border border-slate-200 rounded-md p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-gym-text">
+                  Top clientes
+                </span>
+
+                <div className="flex gap-2 text-xs">
+                  <button
+                    className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-50"
+                    onClick={() => {
+                      setTopSortField("cantidad");
+                      setTopSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+                    }}
+                  >
+                    Ordenar por cantidad
+                  </button>
+
+                  <button
+                    className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-50"
+                    onClick={() => {
+                      setTopSortField("nombre");
+                      setTopSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+                    }}
+                  >
+                    Ordenar por nombre
+                  </button>
+                </div>
+              </div>
+
+              {noTop ? (
+                <p className="text-sm text-gym-text-muted">
+                  No hay datos suficientes para mostrar el gráfico.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {topOrdenados.slice(0, 10).map((c, idx) => (
+                    <li
+                      key={c.cliente_id}
+                      className="flex items-center justify-between text-sm border-b border-slate-100 pb-2"
+                    >
+                      <span className="text-gym-text flex items-center gap-2">
+                        <span
+                          className="inline-block w-3 h-3 rounded-full"
+                          style={{
+                            backgroundColor:
+                              PIE_COLORS[idx % PIE_COLORS.length],
+                          }}
+                        />
+                        <span>
+                          {c.nombre} {c.apellido}
+                          <span className="text-xs text-gym-text-muted">
+                            {" "}
+                            — {c.rut}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="font-medium">
+                        {Number(c.cantidad) || 0}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-6 bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="text-lg font-semibold text-gym-text">
+            Asistencias por día (mes actual)
+          </h2>
+          <p className="text-sm text-gym-text-muted">
+            Serie diaria de entradas registradas.
+          </p>
+
+          <div className="mt-4 flex items-center gap-2 text-xs">
+            <button
+              className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-50"
+              onClick={() => {
+                setDiasSortField("fecha");
+                setDiasSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+              }}
+            >
+              Ordenar por fecha
+            </button>
+
+            <button
+              className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-50"
+              onClick={() => {
+                setDiasSortField("cantidad");
+                setDiasSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+              }}
+            >
+              Ordenar por cantidad
+            </button>
+          </div>
+
+          <div className="mt-4">
+            {noDias ? (
               <p className="text-sm text-gym-text-muted">
-                Aún no hay suficientes datos para calcular semanas.
+                Aún no hay suficientes datos para mostrar el gráfico.
               </p>
             ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={semanasChartData}>
+              <div className="w-full">
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={diasChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="etiqueta" />
+                    <XAxis dataKey="fecha" />
                     <YAxis allowDecimals={false} />
                     <Tooltip />
-                    <Legend />
                     <Line
                       type="monotone"
-                      dataKey="total"
-                      name="Asistencias"
-                      stroke="#2563eb"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
+                      dataKey="cantidad"
+                      stroke="#2563EB"
+                      strokeWidth={3}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -443,173 +457,70 @@ export default function AttendanceDashboard() {
             )}
           </div>
 
-          {/* 4) Comparación mes a mes */}
-          <div className="bg-white rounded-2xl border border-gym-border shadow-sm p-5">
-            <h2 className="text-xl font-semibold mb-2">
-              Comparación mes a mes
-            </h2>
-            <p className="text-sm text-gym-text-muted mb-3">
-              Total de asistencias por mes (máx. últimos 6 meses).
-            </p>
-
-            {mesesChartData.length <= 1 ? (
+          <div className="mt-4 border border-slate-200 rounded-md p-4">
+            {noDias ? (
               <p className="text-sm text-gym-text-muted">
-                Se necesita al menos más de un mes de datos para comparar.
+                No hay asistencias registradas este mes.
               </p>
             ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={mesesChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="mes" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="total" name="Asistencias" fill="#0f766e" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                {diasOrdenados.slice(0, 14).map((d) => (
+                  <li
+                    key={d.fecha}
+                    className="flex items-center justify-between border-b border-slate-100 pb-1"
+                  >
+                    <span className="text-gym-text">{d.fecha}</span>
+                    <span className="font-medium">
+                      {Number(d.cantidad) || 0}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>
 
-        {/* Grid 3: ranking de clientes + gráfico circular + ranking de horarios */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* 5) Top clientes + pie */}
-          <div className="bg-white rounded-2xl border border-gym-border shadow-sm p-5 xl:col-span-2">
-            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-3">
-              <div>
-                <h2 className="text-xl font-semibold">
-                  Clientes con mayor asistencia (mes actual)
-                </h2>
-                <p className="text-sm text-gym-text-muted">
-                  Ranking de los clientes que más han asistido en el mes.
-                </p>
-              </div>
-            </div>
+        <div className="mb-6 bg-white rounded-xl border border-slate-200 p-5">
+          <h2 className="text-lg font-semibold text-gym-text">
+            Ranking de mejores horarios
+          </h2>
+          <p className="text-sm text-gym-text-muted">
+            Horarios con mayor cantidad de asistencias en el período analizado.
+          </p>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-              {/* Tabla ranking */}
-              <div className="max-h-96 overflow-auto text-sm border border-slate-100 rounded-xl">
-                {topClientesOrdenados.length === 0 ? (
-                  <p className="text-sm text-gym-text-muted p-4">
-                    Aún no hay asistencias registradas este mes.
-                  </p>
-                ) : (
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="bg-slate-100 text-xs uppercase text-gym-text-muted">
-                        <th className="py-2 px-2 text-left">#</th>
-                        <th className="py-2 px-2 text-left">Cliente</th>
-                        <th
-                          className="py-2 px-2 text-right cursor-pointer select-none"
-                          onClick={() => setSortTopAsistDesc((v) => !v)}
-                        >
-                          Asistencias {sortTopAsistDesc ? "↓" : "↑"}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topClientesOrdenados.map((c, idx) => (
-                        <tr
-                          key={c.cliente_id}
-                          className="border-b border-slate-100"
-                        >
-                          <td className="py-1.5 px-2">{idx + 1}</td>
-                          <td className="py-1.5 px-2">
-                            {c.nombre} {c.apellido}
-                          </td>
-                          <td className="py-1.5 px-2 text-right">
-                            {c.cantidad}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {/* Gráfico circular */}
-              <div className="h-80">
-                {pieData.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-sm text-gym-text-muted">
-                    No hay datos suficientes para mostrar el gráfico.
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={55}
-                        outerRadius={85}
-                        paddingAngle={4}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={PIE_COLORS[index % PIE_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value, name) => [
-                          `${value} asistencias`,
-                          name,
-                        ]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* 6) Ranking de mejores horarios */}
-          <div className="bg-white rounded-2xl border border-gym-border shadow-sm p-5">
-            <h2 className="text-xl font-semibold mb-2">
-              Ranking de mejores horarios
-            </h2>
-            <p className="text-sm text-gym-text-muted mb-3">
-              Horarios con mayor cantidad de asistencias en el período
-              analizado.
-            </p>
-
-            {horasRankingTop.length === 0 ? (
+          <div className="mt-4">
+            {noHoras ? (
               <p className="text-sm text-gym-text-muted">
-                Aún no hay suficientes datos para calcular el ranking de
-                horarios.
+                Aún no hay suficientes datos para calcular el ranking de horarios.
               </p>
             ) : (
               <>
-                <div className="h-40 mb-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={horasRankingChartData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" allowDecimals={false} />
-                      <YAxis type="category" dataKey="hora" width={60} />
-                      <Tooltip />
-                      <Bar dataKey="total" name="Asistencias" fill="#f97316" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={horasRankingChartData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis type="category" dataKey="hora" width={60} />
+                    <Tooltip />
+                    <Bar dataKey="cantidad" fill="#10B981" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
 
-                <ul className="text-sm space-y-1">
-                  {horasRankingTop.map((h, idx) => (
+                <ul className="mt-4 space-y-2">
+                  {horasRankingChartData.map((h) => (
                     <li
                       key={h.hora}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between text-sm border-b border-slate-100 pb-2"
                     >
-                      <span className="flex items-center gap-2">
-                        <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-slate-100 text-xs text-gym-text-muted">
-                          {idx + 1}
-                        </span>
-                        <span>
-                          {h.hora.toString().padStart(2, "0")}:00
+                      <span className="text-gym-text">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="w-10 text-xs text-gym-text-muted">
+                            {h.hora}
+                          </span>
                         </span>
                       </span>
-                      <span className="font-medium">{h.cantidad}</span>
+                      <span className="font-medium">
+                        {Number(h.cantidad) || 0}
+                      </span>
                     </li>
                   ))}
                 </ul>

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { apiCrearCliente } from "../../api";
 import { formatRUT, validarRUT } from "../../utils/rut";
+import FaceEnrollAfterCreate from "./FaceEnrollAfterCreate";
 
 function getApiErrorMessage(err) {
   if (err?.message && typeof err.message === "string") return err.message;
@@ -18,8 +19,8 @@ function getApiErrorMessage(err) {
 export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
   const [loading, setLoading] = useState(false);
   const [rutError, setRutError] = useState(false);
+  const [clienteCreadoId, setClienteCreadoId] = useState(null);
 
-  // ✅ mensaje LOCAL del módulo Crear Cliente
   const [localMsg, setLocalMsg] = useState(null); // { type, text }
 
   const [form, setForm] = useState({
@@ -31,6 +32,19 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
     estado_laboral: "",
     sexo: "",
   });
+
+  const resetForm = () => {
+    setForm({
+      nombre: "",
+      apellido: "",
+      rut: "",
+      email: "",
+      direccion: "",
+      estado_laboral: "",
+      sexo: "",
+    });
+    setRutError(false);
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -47,34 +61,35 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
 
     setLoading(true);
     setLocalMsg(null);
-    setMsg?.(null); // limpiamos mensaje global
+    setMsg?.(null);
 
     try {
       const creator = onCreate || apiCrearCliente;
       const res = await creator(form);
-      const newId = res?.cliente_id;
+
+      const newId =
+        res?.cliente_id ||
+        res?.cliente?.cliente_id ||
+        null;
 
       setLocalMsg({
         type: "success",
-        text: "✅ Cliente creado correctamente.",
+        text: "✅ Cliente creado correctamente. Ahora puedes registrar su rostro.",
       });
 
-      setForm({
-        nombre: "",
-        apellido: "",
-        rut: "",
-        email: "",
-        direccion: "",
-        estado_laboral: "",
-        sexo: "",
-      });
+      resetForm();
 
-      setRutError(false);
-      onCreated?.(newId);
+      if (newId) {
+        setClienteCreadoId(newId);
+        onCreated?.(newId);
+      } else {
+        setClienteCreadoId(null);
+      }
     } catch (err) {
       console.error(err);
       const msg = getApiErrorMessage(err);
       setLocalMsg({ type: "error", text: msg });
+      setClienteCreadoId(null);
     } finally {
       setLoading(false);
     }
@@ -82,7 +97,6 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
 
   return (
     <div className="md:col-span-4">
-      {/* 🔔 Mensaje sobre el módulo Crear Cliente */}
       {localMsg?.text && (
         <div
           className={`border rounded px-3 py-2 mb-3 text-sm ${
@@ -112,7 +126,6 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
           required
         />
 
-        {/* RUT */}
         <div className="col-span-1">
           <input
             className={`border rounded px-3 py-2 w-full ${
@@ -125,9 +138,7 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
               setForm({ ...form, rut: formatted });
               const shouldValidate =
                 formatted.replace(/[^\dkK]/g, "").length > 7;
-              setRutError(
-                shouldValidate ? !validarRUT(formatted) : false
-              );
+              setRutError(shouldValidate ? !validarRUT(formatted) : false);
             }}
             required
           />
@@ -156,9 +167,7 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
         <select
           className="border rounded px-3 py-2"
           value={form.estado_laboral}
-          onChange={(e) =>
-            setForm({ ...form, estado_laboral: e.target.value })
-          }
+          onChange={(e) => setForm({ ...form, estado_laboral: e.target.value })}
         >
           <option value="">Estado Laboral</option>
           <option value="Dependiente">Dependiente</option>
@@ -186,6 +195,25 @@ export default function CreateClientForm({ onCreated, setMsg, onCreate }) {
           {loading ? "Guardando..." : "Crear cliente"}
         </button>
       </form>
+
+      {clienteCreadoId ? (
+        <FaceEnrollAfterCreate
+          clienteId={clienteCreadoId}
+          onDone={() => {
+            setLocalMsg({
+              type: "success",
+              text: "✅ Cliente creado y rostro registrado correctamente.",
+            });
+          }}
+          onSkip={() => {
+            setLocalMsg({
+              type: "success",
+              text: "✅ Cliente creado correctamente. El registro facial quedó pendiente.",
+            });
+            setClienteCreadoId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
