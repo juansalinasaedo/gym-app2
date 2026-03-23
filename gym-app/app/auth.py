@@ -4,12 +4,12 @@ from flask import Blueprint, request, jsonify, session
 from typing import Any, Dict, Optional
 from .models import User
 from . import db
-import time   
+import time
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 # Tiempo máximo de inactividad antes de expirar sesión (en segundos)
-IDLE_TIMEOUT_SECONDS = 30 * 60  # 30 minutos
+IDLE_TIMEOUT_SECONDS = 60 * 60  # 1 hora
 
 @auth_bp.before_app_request
 def check_idle_timeout():
@@ -86,6 +86,8 @@ def login():
     session["role"] = u.role
     session["user_role"] = u.role
     session["last_active"] = time.time()
+    session.permanent = True
+
     return jsonify({"user": _user_to_dict(u)}), 200
 
 

@@ -23,7 +23,7 @@ def create_app():
     app.config["SECRET_KEY"] = getenv("SECRET_KEY", "dev-secret-key")
     app.config["SQLALCHEMY_DATABASE_URI"] = database_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=10)
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=1)
 
     # Cookies según entorno
     is_production = getenv("FLASK_ENV") == "production" or getenv("RENDER") == "true"
