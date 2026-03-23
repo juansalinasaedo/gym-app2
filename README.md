@@ -1,62 +1,75 @@
-# 🏋️‍♂️ GYM-APP — Sistema de Gestión para Gimnasios  
-Sistema profesional de administración para gimnasios: gestión de clientes, membresías, asistencias con QR, credenciales PDF, control de caja y estadísticas.  
-Desarrollado en **Flask + React + PostgreSQL**, optimizado para uso real en recepción.
+# 🏋️ Gym App — Sistema de Gestión de Gimnasio
 
-## 🚀 Características principales
+Aplicación web full-stack para la gestión integral de un gimnasio:
 
-### 🔐 Autenticación y Seguridad
-- Login seguro con cookies HTTPOnly.
-- Sesiones persistentes y expiración automática por inactividad.
-- Middleware de protección de rutas según rol del usuario: Admin, Cajero, Lector.
+- 👥 Clientes
+- 💳 Membresías
+- 💰 Pagos
+- 📊 Dashboard
+- 📷 Check-in por QR y reconocimiento facial
+- 📄 Exportación de reportes (Excel)
 
-## 🧍 Gestión de Clientes
-- Búsqueda instantánea por nombre o RUT.
-- Token QR único por cliente.
-- Ficha completa del cliente.
+Proyecto desarrollado con arquitectura moderna utilizando **Flask + React + PostgreSQL**.
 
-## 🎫 Membresías / Planes
-- Asignación, renovación y control de vigencia.
-- Cálculo automático de días restantes.
+---
 
-## 🎥 Check-in rápido por QR
-### ✔ Modo Manual
-El lector actúa como teclado.
+## 🚀 Demo / Estado
 
-### ✔ Modo Cámara
-- Lectura en tiempo real con html5-qrcode.
-- Registro instantáneo y seguro.
-- Manejo de entradas duplicadas.
+🟢 Proyecto en desarrollo activo  
+🧪 Entorno local funcional (Backend + Frontend)
 
-## 🪪 Credencial PDF del Cliente
-- Generación automática con QR.
-- Diseño tipo tarjeta imprimible.
+---
 
-## 📊 Entradas del día
-- Ordenadas cronológicamente.
-- Refrescadas automáticamente tras registrar asistencia.
+## 🧠 Arquitectura
 
-## 💰 Caja del día
-- Control básico de ingresos del día.
+Frontend (React + Vite)
+│
+├── API REST (Flask)
+│   ├── Auth (session-based)
+│   ├── Clientes
+│   ├── Membresías
+│   ├── Pagos
+│   ├── Asistencias
+│   ├── Face Recognition
+│   └── Reportes Excel
+│
+└── PostgreSQL (DB)
 
-## 🛠️ Tecnologías utilizadas
+---
+
+## 🛠️ Tecnologías
+
 ### Backend
-Flask, SQLAlchemy, PostgreSQL, qrcode, reportlab, passlib.
+- Python 3.x
+- Flask
+- SQLAlchemy
+- PostgreSQL
+- OpenPyXL (exportación Excel)
+- ReportLab (credenciales PDF)
 
 ### Frontend
-React, Vite, TailwindCSS, html5-qrcode.
+- React + Vite
+- Tailwind CSS
 
-## 📁 Estructura del proyecto
-gym-app/ (backend)  
-gym-ui/ (frontend)
+---
 
-## ⚙️ Instalación local
+## 🔐 Autenticación
+
+- Basada en sesión (Flask session)
+- Timeout por inactividad configurable (1 hora)
+- Roles: admin, cashier
+
+---
+
+## ⚙️ Instalación
+
 ### Backend
 ```
 cd gym-app
 python -m venv venv
-source venv/bin/activate
+venv\Scripts\activate
 pip install -r requirements.txt
-python run.py
+flask run
 ```
 
 ### Frontend
@@ -66,32 +79,8 @@ npm install
 npm run dev
 ```
 
-## 🌍 Variables de entorno
-Backend:
-```
-DATABASE_URL=
-SECRET_KEY=
-CORS_ORIGIN=
-```
+---
 
-Frontend:
-```
-VITE_API_BASE=
-```
+## 📄 Autor
 
-## 🚀 Deploy en Render
-- Añadir qrcode[pil] y reportlab a requirements.txt.
-- Comando de inicio: `python run.py`.
-
-## 🚀 Deploy del Frontend
-- Vercel, Netlify o Render Static Site.
-
-## 🗺️ Roadmap futuro
-- App móvil
-- Dashboard avanzado
-- Integración de pagos
-- Exportaciones masivas
-
-## 👤 Autor
-Juan Francisco Salinas Aedo  
-LinkedIn: https://www.linkedin.com/in/juan-salinas-aedo-ti/
+Juan Francisco Salinas Aedo
