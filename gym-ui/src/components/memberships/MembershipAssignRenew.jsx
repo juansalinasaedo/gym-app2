@@ -1,4 +1,3 @@
-// src/components/memberships/MembershipAssignRenew.jsx
 import { useMemo, useState } from "react";
 import Section from "../Section";
 import { apiPagarYRenovar } from "../../api";
@@ -17,13 +16,10 @@ export default function MembershipAssignRenew({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
 
-  // ¿tiene plan activo? => bloquea pagos
   const bloqueoPagos = useMemo(() => {
-    if (!infoMembresia) return false;
-    return (
+    return !!infoMembresia &&
       infoMembresia.estado === "activa" &&
-      Number(infoMembresia.dias_restantes ?? 0) >= 0
-    );
+      Number(infoMembresia.dias_restantes ?? -1) >= 0;
   }, [infoMembresia]);
 
   const guardIfBlocked = () => {
@@ -31,6 +27,7 @@ export default function MembershipAssignRenew({
       setMsg("⚠️ Debes seleccionar un cliente.");
       return true;
     }
+
     if (bloqueoPagos) {
       setMsg(
         `⚠️ El cliente ya tiene una membresía activa (vence ${infoMembresia?.fecha_fin}). ` +
@@ -38,13 +35,16 @@ export default function MembershipAssignRenew({
       );
       return true;
     }
+
     return false;
   };
 
   const asignarConPago = async (e) => {
     e.preventDefault();
     setMsg(null);
+
     if (guardIfBlocked()) return;
+
     if (!membresiaId || !assignMonto) {
       setMsg("⚠️ Selecciona un plan e ingresa el monto.");
       return;
@@ -61,6 +61,7 @@ export default function MembershipAssignRenew({
       });
 
       setAssignMonto("");
+      setMembresiaId("");
       setMsg("✅ Asignación + pago realizados");
       onAfterChange?.();
     } catch (err) {
@@ -74,7 +75,14 @@ export default function MembershipAssignRenew({
   const renovarConPago = async (e) => {
     e.preventDefault();
     setMsg(null);
+
     if (guardIfBlocked()) return;
+
+    if (!infoMembresia) {
+      setMsg("⚠️ El cliente no tiene una membresía anterior para renovar.");
+      return;
+    }
+
     if (!renewMonto) {
       setMsg("⚠️ Ingresa el monto para renovar.");
       return;
@@ -102,12 +110,12 @@ export default function MembershipAssignRenew({
 
   return (
     <Section title="3) Membresías (asignar / pagar / renovar)">
-      {/* Banner informativo del módulo */}
       {!clienteId && (
         <div className="mb-3 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
           Selecciona un cliente para habilitar la asignación/renovación.
         </div>
       )}
+
       {bloqueoPagos && (
         <div className="mb-3 p-3 rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm">
           ⚠️ El cliente ya tiene una <b>membresía activa</b> (vence el{" "}
@@ -123,7 +131,6 @@ export default function MembershipAssignRenew({
         </div>
       )}
 
-      {/* Lista de planes */}
       <div className="mb-4">
         <div className="mb-2 text-xs text-gray-600">Membresías disponibles</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -154,9 +161,7 @@ export default function MembershipAssignRenew({
         </div>
       </div>
 
-      {/* Acciones */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* ASIGNAR (nuevo plan) + pago */}
         <form
           onSubmit={asignarConPago}
           className="border rounded-xl p-4 bg-white shadow-sm"
@@ -199,7 +204,6 @@ export default function MembershipAssignRenew({
           </div>
         </form>
 
-        {/* RENOVAR plan + pago */}
         <form
           onSubmit={renovarConPago}
           className="border rounded-xl p-4 bg-white shadow-sm"
@@ -233,11 +237,11 @@ export default function MembershipAssignRenew({
                 !clienteId ||
                 !renewMonto ||
                 bloqueoPagos ||
-                (infoMembresia && infoMembresia.estado === "sin_membresia")
+                !infoMembresia
               }
               title={bloqueoPagos ? "Bloqueado por membresía activa" : ""}
             >
-              {loading ? "Procesando... " : "Renovar + pagar"}
+              {loading ? "Procesando..." : "Renovar + pagar"}
             </button>
           </div>
         </form>

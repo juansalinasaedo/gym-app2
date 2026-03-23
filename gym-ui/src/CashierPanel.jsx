@@ -73,8 +73,17 @@ export default function CashierPanel() {
 
   const formatHora = (fechaHora) => {
     if (!fechaHora) return "";
-    const d = new Date(fechaHora);
-    if (isNaN(d.getTime())) return "";
+  
+    const raw = String(fechaHora).trim();
+  
+    // Soporta "YYYY-MM-DD HH:mm:ss"
+    const normalized = raw.includes(" ") && !raw.includes("T")
+      ? raw.replace(" ", "T")
+      : raw;
+  
+    const d = new Date(normalized);
+    if (isNaN(d.getTime())) return raw.slice(11, 16) || "";
+  
     return d.toLocaleTimeString("es-CL", {
       hour: "2-digit",
       minute: "2-digit",
@@ -98,9 +107,8 @@ export default function CashierPanel() {
     await refreshMembresia();
   };
 
-  const showClienteNoSel = !clienteId;
-  const showActiva =
-    !!info && info.estado === "activa" && Number(info.dias_restantes ?? 0) >= 0;
+  const showClienteNoSel = !clienteId;      
+  const showActiva = !!activa && !!info;
 
   if (!ready) {
     return (

@@ -553,4 +553,212 @@ def asistencias_rango():
         })
 
     return jsonify(data)
+
+@bp.get("/asistencias/rango/excel")
+@login_required
+def exportar_asistencias_rango_excel():
+    desde = (request.args.get("from") or request.args.get("desde") or "").strip()
+    hasta = (request.args.get("to") or request.args.get("hasta") or "").strip()
+
+    if not desde or not hasta:
+        return jsonify({"error": "Debe enviar from/to o desde/hasta en formato YYYY-MM-DD"}), 400
+
+    try:
+        f1 = datetime.strptime(desde, "%Y-%m-%d").date()
+        f2 = datetime.strptime(hasta, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
+
+    rows = (
+        db.session.query(Asistencia, Cliente)
+        .join(Cliente, Cliente.cliente_id == Asistencia.cliente_id)
+        .filter(
+            func.date(Asistencia.fecha_hora) >= f1,
+            func.date(Asistencia.fecha_hora) <= f2,
+        )
+        .order_by(Asistencia.fecha_hora.desc())
+        .all()
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Asistencias"
+
+    ws.append([
+        "Asistencia ID",
+        "Fecha",
+        "Hora",
+        "Cliente ID",
+        "Cliente",
+        "RUT",
+        "Tipo",
+    ])
+
+    for a, c in rows:
+        fecha_txt = a.fecha_hora.strftime("%Y-%m-%d") if a.fecha_hora else ""
+        hora_txt = a.fecha_hora.strftime("%H:%M") if a.fecha_hora else ""
+
+        ws.append([
+            a.asistencia_id,
+            fecha_txt,
+            hora_txt,
+            c.cliente_id,
+            f"{c.nombre} {c.apellido}",
+            c.rut,
+            getattr(a, "tipo", "entrada"),
+        ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    nombre_archivo = f"asistencias_{f1.strftime('%Y%m%d')}_{f2.strftime('%Y%m%d')}.xlsx"
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=nombre_archivo,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 # DEBUG TEST
+
+# -------------------- PAGOS --------------------
+
+@bp.get("/pagos/hoy")
+@login_required
+def listar_pagos_hoy():
+    hoy = _today_local()
+
+    rows = (
+        db.session.query(Pago, Cliente, ClienteMembresia, Membresia)
+        .join(Cliente, Cliente.cliente_id == Pago.cliente_id)
+        .outerjoin(
+            ClienteMembresia,
+            ClienteMembresia.cliente_membresia_id == Pago.cliente_membresia_id
+        )
+        .outerjoin(
+            Membresia,
+            Membresia.membresia_id == ClienteMembresia.membresia_id
+        )
+        .filter(func.date(Pago.fecha_pago) == hoy)
+        .order_by(Pago.fecha_pago.desc())
+        .all()
+    )
+
+    data = []
+    total_general = 0
+    total_efectivo = 0
+    total_tarjeta = 0
+    total_transferencia = 0
+
+    for p, c, cm, m in rows:
+        monto = float(p.monto or 0)
+        metodo = (p.metodo_pago or "").strip()
+
+        total_general += monto
+        if metodo == "Efectivo":
+            total_efectivo += monto
+        elif metodo == "Tarjeta":
+            total_tarjeta += monto
+        elif metodo == "Transferencia":
+            total_transferencia += monto
+
+        data.append({
+            "pago_id": p.pago_id,
+            "cliente_id": c.cliente_id,
+            "cliente": f"{c.nombre} {c.apellido}",
+            "rut": c.rut,
+            "membresia": m.nombre if m else None,
+            "monto": monto,
+            "metodo_pago": metodo,
+            "fecha_pago": p.fecha_pago.isoformat() if p.fecha_pago else None,
+        })
+
+    return jsonify({
+        "items": data,
+        "resumen": {
+            "total_general": total_general,
+            "total_efectivo": total_efectivo,
+            "total_tarjeta": total_tarjeta,
+            "total_transferencia": total_transferencia,
+        }
+    })
+
+
+@bp.get("/pagos/export/excel")
+@login_required
+def exportar_pagos_excel():
+    desde = (request.args.get("from") or "").strip()
+    hasta = (request.args.get("to") or "").strip()
+
+    try:
+        if desde:
+            f1 = datetime.strptime(desde, "%Y-%m-%d").date()
+        else:
+            f1 = _today_local() - timedelta(days=30)
+
+        if hasta:
+            f2 = datetime.strptime(hasta, "%Y-%m-%d").date()
+        else:
+            f2 = _today_local()
+    except ValueError:
+        return jsonify({"error": "Formato de fecha inválido. Use YYYY-MM-DD"}), 400
+
+    rows = (
+        db.session.query(Pago, Cliente, ClienteMembresia, Membresia)
+        .join(Cliente, Cliente.cliente_id == Pago.cliente_id)
+        .outerjoin(
+            ClienteMembresia,
+            ClienteMembresia.cliente_membresia_id == Pago.cliente_membresia_id
+        )
+        .outerjoin(
+            Membresia,
+            Membresia.membresia_id == ClienteMembresia.membresia_id
+        )
+        .filter(
+            func.date(Pago.fecha_pago) >= f1,
+            func.date(Pago.fecha_pago) <= f2,
+        )
+        .order_by(Pago.fecha_pago.desc())
+        .all()
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pagos"
+
+    ws.append([
+        "Pago ID",
+        "Fecha pago",
+        "Cliente ID",
+        "Cliente",
+        "RUT",
+        "Membresía",
+        "Monto",
+        "Método de pago",
+    ])
+
+    for p, c, cm, m in rows:
+        ws.append([
+            p.pago_id,
+            p.fecha_pago.strftime("%Y-%m-%d %H:%M:%S") if p.fecha_pago else "",
+            c.cliente_id,
+            f"{c.nombre} {c.apellido}",
+            c.rut,
+            m.nombre if m else "",
+            float(p.monto or 0),
+            p.metodo_pago or "",
+        ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    nombre_archivo = f"pagos_{f1.strftime('%Y%m%d')}_{f2.strftime('%Y%m%d')}.xlsx"
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=nombre_archivo,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )

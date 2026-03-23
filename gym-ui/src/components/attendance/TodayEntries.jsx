@@ -26,7 +26,7 @@ export default function TodayEntries({ items }) {
           {items.map((a) => (
             <tr key={a.asistencia_id}>
               <td className="px-3 py-2 border-b border-gray-100 text-gray-800">
-              {horaBonita(a.fecha_hora) || a.hora || "—"}
+              {horaBonita(a) || "—"}
               </td>
               <td className="px-3 py-2 border-b border-gray-100">
                 {a.nombre} {a.apellido}

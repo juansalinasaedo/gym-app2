@@ -1,11 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiFaceIdentify, apiFaceConfirm } from "../api";
 
-/**
- * Modo B (Confirmación):
- * 1) Detectar -> llama /api/face/identify y muestra candidato
- * 2) Confirmar -> llama /api/asistencias/face/confirm y registra asistencia
- */
 export default function FaceCheckin({ onSuccess }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -60,6 +55,27 @@ export default function FaceCheckin({ onSuccess }) {
     return new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.9));
   };
 
+  const formatHora = (valor) => {
+    if (!valor) return "";
+
+    const raw = String(valor).trim();
+    const normalized =
+      raw.includes(" ") && !raw.includes("T")
+        ? raw.replace(" ", "T")
+        : raw;
+
+    const d = new Date(normalized);
+
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString("es-CL", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    return raw.slice(11, 16) || "";
+  };
+
   const onIdentify = async () => {
     setBusy(true);
     setCandidate(null);
@@ -95,7 +111,23 @@ export default function FaceCheckin({ onSuccess }) {
 
     try {
       const r = await apiFaceConfirm(candidate.cliente.cliente_id, candidate.score);
-      setStatus(`✅ Asistencia registrada (${r?.hora || "ok"})`);
+
+      const hora =
+        formatHora(r?.hora) ||
+        formatHora(r?.asistencia?.fecha_hora);
+
+      if (r?.already_marked) {
+        setStatus(
+          `⚠️ Cliente ya tiene asistencia registrada${hora ? ` - ${hora}` : ""}`
+        );
+      } else if (r?.ok) {
+        setStatus(
+          `✅ Asistencia registrada${hora ? ` - ${hora}` : ""}`
+        );
+      } else {
+        setStatus("⚠️ No fue posible confirmar la asistencia");
+      }
+
       setCandidate(null);
 
       if (onSuccess) {

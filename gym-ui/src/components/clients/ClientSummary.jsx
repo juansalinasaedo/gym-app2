@@ -1,31 +1,61 @@
 // src/components/clients/ClientSummary.jsx
-import { horaBonita } from "../../utils/time";
-import { API_BASE } from "../../api";   // <--- NUEVO
+import { API_BASE } from "../../api";
+
+function calcDiasRestantes(fechaFin) {
+  if (!fechaFin) return null;
+
+  const hoy = new Date();
+  const fin = new Date(`${fechaFin}T00:00:00`);
+
+  hoy.setHours(0, 0, 0, 0);
+  fin.setHours(0, 0, 0, 0);
+
+  return Math.floor((fin - hoy) / (1000 * 60 * 60 * 24));
+}
 
 export default function ClientSummary({
   cliente, infoMembresia, puedeEntrar, onEntrada, loadingEntrada,
   yaEntroHoy, horaPrimeraEntrada
 }) {
-  if (!cliente)
+  if (!cliente) {
     return (
       <div className="text-gray-500 text-xs p-3 border rounded h-full flex items-center bg-gray-50">
         Selecciona un cliente con el buscador o crea uno nuevo.
       </div>
     );
+  }
 
-  // Normalizar campos nuevos
   const direccion = cliente.direccion?.trim() || "—";
   const estadoLaboral = cliente.estado_laboral?.trim() || "—";
-  const sexo = (cliente.sexo || "").toUpperCase(); // 'M', 'F', 'O'
-  const sexoLabel = sexo === "M" ? "Masculino" : sexo === "F" ? "Femenino" : sexo === "O" ? "Otro" : "—";
+  const sexo = (cliente.sexo || "").toUpperCase();
+  const sexoLabel =
+    sexo === "M" ? "Masculino" :
+    sexo === "F" ? "Femenino" :
+    sexo === "O" ? "Otro" : "—";
+
   const handleVerQR = () => {
     const url = `${API_BASE}/api/clientes/${cliente.cliente_id}/qr`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  // Soportar backend actual o formato ya normalizado
+  const membresia = infoMembresia?.membresia || infoMembresia || null;
+  const estado = membresia?.estado || null;
+  const nombrePlan = membresia?.nombre || membresia?.nombre_plan || "—";
+  const precio = membresia?.precio ?? "—";
+  const fechaInicio = membresia?.fecha_inicio || "—";
+  const fechaFin = membresia?.fecha_fin || "—";
+  const diasRestantes =
+    typeof membresia?.dias_restantes === "number"
+      ? membresia.dias_restantes
+      : calcDiasRestantes(membresia?.fecha_fin);
+
+  const tieneMembresiaActiva =
+    infoMembresia?.activa === true ||
+    (estado === "activa" && membresia?.fecha_fin);
+
   return (
     <div className="p-3 border rounded h-full flex flex-col gap-3 bg-gray-50 text-xs">
-      {/* Datos del cliente */}
       <div>
         <div className="text-gray-900 text-sm font-semibold">
           {cliente.nombre} {cliente.apellido}
@@ -37,7 +67,6 @@ export default function ClientSummary({
           Estado cliente: <span className="font-semibold">{cliente.estado}</span>
         </div>
 
-        {/* Botón Ver QR */}
         <div className="mt-2 flex gap-2">
           <button
             type="button"
@@ -54,11 +83,10 @@ export default function ClientSummary({
             }
             className="inline-flex items-center px-2 py-1 text-[11px] border border-gray-300 rounded hover:bg-gray-100"
           >
-            Descargar credencials
+            Descargar credencial
           </button>
         </div>
 
-        {/* Nuevos campos */}
         <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
           <div className="bg-white rounded border border-gray-200 px-2 py-1">
             <span className="text-[11px] text-gray-500">Dirección: </span>
@@ -75,7 +103,6 @@ export default function ClientSummary({
         </div>
       </div>
 
-      {/* Membresía */}
       <div className="bg-white rounded border border-gray-200 p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -83,38 +110,26 @@ export default function ClientSummary({
               Membresía actual
             </div>
 
-            {!infoMembresia || infoMembresia.estado === "sin_membresia" ? (
+            {!tieneMembresiaActiva || !membresia ? (
               <div className="text-red-600 text-sm font-semibold">Sin membresía activa</div>
             ) : (
               <>
                 <div className="flex flex-wrap items-baseline gap-2">
                   <div className="text-sm font-semibold text-gray-900">
-                    {infoMembresia.nombre_plan}
+                    {nombrePlan}
                   </div>
-                  <div className="text-[11px] text-gray-500">${infoMembresia.precio}</div>
-                  <span
-                    className={`px-2 py-[2px] rounded-full text-[10px] font-semibold ${
-                      infoMembresia.estado === "activa"
-                        ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
-                        : "bg-red-100 text-red-700 border border-red-300"
-                    }`}
-                  >
-                    {infoMembresia.estado === "activa" ? "Activa" : "Vencida"}
+                  <div className="text-[11px] text-gray-500">${precio}</div>
+                  <span className="px-2 py-[2px] rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-300">
+                    Activa
                   </span>
                 </div>
 
                 <div className="text-[11px] text-gray-600 mt-2 leading-relaxed">
                   <div>
-                    Inicio:{" "}
-                    <span className="font-medium text-gray-800">
-                      {infoMembresia.fecha_inicio}
-                    </span>
+                    Inicio: <span className="font-medium text-gray-800">{fechaInicio}</span>
                   </div>
                   <div>
-                    Vence:{" "}
-                    <span className="font-medium text-gray-800">
-                      {infoMembresia.fecha_fin}
-                    </span>
+                    Vence: <span className="font-medium text-gray-800">{fechaFin}</span>
                   </div>
                 </div>
 
@@ -122,12 +137,12 @@ export default function ClientSummary({
                   <span className="text-[11px] text-gray-600">Días restantes:</span>
                   <span
                     className={`text-sm font-bold px-2 py-[2px] rounded ${
-                      infoMembresia.dias_restantes >= 0
+                      diasRestantes >= 0
                         ? "bg-emerald-600 text-white"
                         : "bg-red-600 text-white"
                     }`}
                   >
-                    {infoMembresia.dias_restantes}
+                    {diasRestantes ?? "—"}
                   </span>
                 </div>
               </>

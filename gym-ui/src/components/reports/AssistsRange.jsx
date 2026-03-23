@@ -1,5 +1,16 @@
 import React, { useState } from "react";
 import { apiAsistenciasRango } from "../../api";
+import { horaBonita } from "../../utils/time";
+
+function fechaBonita(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    if (value.includes("T")) return value.slice(0, 10);
+    if (value.includes(" ")) return value.slice(0, 10);
+    return value;
+  }
+  return "";
+}
 
 export default function AssistsRange() {
   const [desde, setDesde] = useState("");
@@ -7,7 +18,6 @@ export default function AssistsRange() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Base URL para llamadas directas (si usas proxy de Vite a /api, puede quedar en "")
   const API_BASE = import.meta.env.VITE_API_BASE || "";
 
   const buildQS = (params) => new URLSearchParams(params).toString();
@@ -17,25 +27,23 @@ export default function AssistsRange() {
       alert("Debes indicar desde y hasta");
       return;
     }
-  
-    // Normaliza rango si el usuario los invierte
+
     const d1 = new Date(desde);
     const d2 = new Date(hasta);
     const from = d1 <= d2 ? desde : hasta;
-    const to   = d1 <= d2 ? hasta : desde;
-  
+    const to = d1 <= d2 ? hasta : desde;
+
     try {
       setLoading(true);
-  
+
       const data = await apiAsistenciasRango(from, to);
-  
-      // data puede venir como array, como {items: []}, o null
+
       const safeItems = Array.isArray(data)
         ? data
         : Array.isArray(data?.items)
-          ? data.items
-          : [];
-  
+        ? data.items
+        : [];
+
       setItems(safeItems);
     } catch (e) {
       console.error(e);
@@ -44,19 +52,17 @@ export default function AssistsRange() {
     } finally {
       setLoading(false);
     }
-  };  
-  
+  };
+
   const handleExportExcel = () => {
     if (!desde || !hasta || items.length === 0) return;
 
-    // Normaliza rango si el usuario los invierte
     const d1 = new Date(desde);
     const d2 = new Date(hasta);
     const from = d1 <= d2 ? desde : hasta;
     const to = d1 <= d2 ? hasta : desde;
 
-    const qs = buildQS({ desde: from, hasta: to });
-    // Si usas proxy, esto funciona tal cual; si no, define VITE_API_BASE (p. ej., http://127.0.0.1:5000)
+    const qs = buildQS({ from, to });
     window.open(`${API_BASE}/api/asistencias/rango/excel?${qs}`, "_blank");
   };
 
@@ -126,8 +132,12 @@ export default function AssistsRange() {
             <tbody className="bg-white">
               {items.map((r) => (
                 <tr key={r.asistencia_id} className="odd:bg-white even:bg-gray-50">
-                  <td className="px-3 py-2 border-b border-gray-100">{r.fecha}</td>
-                  <td className="px-3 py-2 border-b border-gray-100">{r.hora}</td>
+                  <td className="px-3 py-2 border-b border-gray-100">
+                    {r.fecha || fechaBonita(r.fecha_hora) || "—"}
+                  </td>
+                  <td className="px-3 py-2 border-b border-gray-100">
+                    {r.hora || horaBonita(r) || "—"}
+                  </td>
                   <td className="px-3 py-2 border-b border-gray-100">
                     {r.nombre} {r.apellido}
                   </td>
