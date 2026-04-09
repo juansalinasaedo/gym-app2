@@ -1,62 +1,74 @@
-# 🏋️ Gym App 2
+# 🏋️ Gym App 2 — Sistema de Gestión de Gimnasio
 
-Aplicación web full-stack para la gestión operativa de un gimnasio, construida con **Flask + React + PostgreSQL/SQLite**, orientada a trabajo real en recepción, control de clientes, membresías, pagos y asistencias.
+![Python](https://img.shields.io/badge/Python-3.x-blue)
+![Flask](https://img.shields.io/badge/Flask-Backend-black)
+![React](https://img.shields.io/badge/React-Frontend-blue)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
+![Status](https://img.shields.io/badge/Status-En%20desarrollo-yellow)
 
-## Estado actual del proyecto
+---
 
-El repositorio contiene dos aplicaciones principales:
+## 📌 Descripción
 
-- `gym-app/` → backend en Flask
-- `gym-ui/` → frontend en React + Vite
+**Gym App 2** es una aplicación web full-stack orientada a la gestión operativa de un gimnasio, diseñada para uso real en recepción.
 
-Además, incluye scripts auxiliares para correr el backend y el frontend en Windows, archivos de requerimientos y utilidades de setup para entorno local.
+Permite controlar clientes, membresías, pagos, asistencias (QR y reconocimiento facial), caja diaria y dashboard analítico.
 
-## Funcionalidades principales
+---
 
-### Gestión de clientes
-- Registro y consulta de clientes
+## 🚀 Demo (Arquitectura)
+
+```text
+Frontend (React + Vite)  →  Backend (Flask API)  →  Base de Datos (PostgreSQL / SQLite)
+```
+
+---
+
+## 🧩 Funcionalidades principales
+
+### 👤 Clientes
+- Registro y edición
 - Búsqueda rápida
-- Ficha individual
 - Identificación por RUT
-- Token QR por cliente
+- Generación de QR único
 
-### Membresías
+### 📅 Membresías
 - Asignación de planes
-- Renovación de membresías
+- Renovación automática
 - Control de vigencia
-- Seguimiento de vencimientos próximos
+- Alertas de vencimiento
 
-### Asistencias
-- Registro manual de entradas
-- Check-in por código QR
-- Confirmación y registro de asistencia facial
-- Prevención de duplicados en entradas del mismo día
+### ✅ Asistencias
+- Registro manual
+- Check-in con QR
+- Reconocimiento facial
+- Prevención de duplicados
 
-### Pagos y caja
+### 💰 Pagos y Caja
 - Registro de pagos
-- Resumen diario
-- Control de caja
-- Cierre de caja
+- Métodos: efectivo / transferencia / tarjeta
+- Cierre de caja diario
+- Resumen financiero
 
-### Dashboard
-- Resumen general
-- Entradas del día
+### 📊 Dashboard
 - Ingresos del día
-- Membresías por vencer
-- Tendencias por día, hora y top de clientes
+- Asistencias del día
+- Tendencias por hora/día
+- Top clientes
+- Membresías próximas a vencer
 
-### Reportes y documentos
+### 📄 Reportes
 - Exportación a Excel
 - Generación de credenciales PDF con QR
 
-## Arquitectura
+---
+
+## 🏗️ Arquitectura del Proyecto
 
 ```text
 gym-app2/
 ├── gym-app/              # Backend Flask
 │   ├── app/
-│   │   ├── __init__.py
-│   │   ├── auth.py
 │   │   ├── models.py
 │   │   ├── routes.py
 │   │   ├── routes_dashboard.py
@@ -65,105 +77,75 @@ gym-app2/
 │   │   └── routes_face.py
 │   └── run.py
 ├── gym-ui/               # Frontend React + Vite
-│   ├── src/
-│   └── package.json
 ├── requirements.txt
-├── requirements_base.txt
 ├── run_backend.bat
 ├── run_frontend.bat
-├── CORRER_GYM_APP.bat
-└── SETUP_GYM_APP.bat
+└── README.md
 ```
 
-## Stack tecnológico
+---
+
+## ⚙️ Stack Tecnológico
 
 ### Backend
-- Python 3
 - Flask
-- Flask-CORS
-- Flask-SQLAlchemy / SQLAlchemy
-- PostgreSQL
-- SQLite como fallback local
+- SQLAlchemy
+- PostgreSQL / SQLite
 - OpenPyXL
 - ReportLab
 - qrcode
-- Pillow
-- OpenCV Headless
-- ONNX Runtime
-- InsightFace
+- OpenCV (headless)
+- InsightFace / ONNX
 - NumPy
 
 ### Frontend
 - React 19
 - Vite
 - React Router
-- Axios
 - Recharts
-- html5-qrcode
+- Axios
 
-## Autenticación y seguridad
+---
 
-El backend usa sesiones con cookies y soporte de CORS con credenciales.  
-La configuración contempla:
+## 🔐 Configuración (.env)
 
-- `SECRET_KEY`
-- expiración de sesión
-- cookies `SameSite` y `Secure` según entorno
-- lista de orígenes permitidos mediante `ALLOWED_ORIGINS`
-
-## Variables de entorno
-
-### Backend (`gym-app/.env`)
+### Backend
 ```env
-DATABASE_URL=postgresql://usuario:password@host:5432/base
-SECRET_KEY=tu_clave_secreta
-ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
-FLASK_ENV=development
-RENDER=false
+DATABASE_URL=postgresql://user:pass@host:5432/db
+SECRET_KEY=clave_secreta
+ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-> Si `DATABASE_URL` no está definida, el backend usa `sqlite:///gym.db` como base local por defecto.
-
-### Frontend (`gym-ui/.env`)
+### Frontend
 ```env
-VITE_API_BASE=http://127.0.0.1:5000
+VITE_API_BASE=http://localhost:5000
 ```
 
-## Ejecución local
+---
 
-### 1) Clonar el repositorio
+## ▶️ Instalación y ejecución
+
+### 1. Clonar repo
 ```bash
 git clone https://github.com/juansalinasaedo/gym-app2.git
 cd gym-app2
 ```
 
-### 2) Levantar el backend
+---
+
+### 2. Backend
+
 ```bash
 cd gym-app
 python -m venv .venv
-```
-
-#### En Windows
-```bash
-.venv\Scripts\activate
-```
-
-#### En Linux/macOS
-```bash
-source .venv/bin/activate
-```
-
-Luego instala dependencias y ejecuta:
-
-```bash
+.venv\Scripts\activate   # Windows
 pip install -r ..\requirements.txt
 python run.py
 ```
 
-> Según la estructura actual del repo, `run.py` crea la app Flask mediante `create_app()` y la ejecuta directamente.
+---
 
-### 3) Levantar el frontend
-En otra terminal:
+### 3. Frontend
 
 ```bash
 cd gym-ui
@@ -171,68 +153,66 @@ npm install
 npm run dev
 ```
 
-## Scripts útiles en Windows
+---
 
-El repositorio incluye scripts `.bat` para facilitar el arranque:
+## 🖥️ Scripts incluidos
 
+- `CORRER_GYM_APP.bat` → levanta todo
+- `SETUP_GYM_APP.bat` → instala dependencias
 - `run_backend.bat`
 - `run_frontend.bat`
-- `CORRER_GYM_APP.bat`
-- `SETUP_GYM_APP.bat`
 
-Esto permite dejar una ejecución más simple en entornos Windows sin escribir comandos cada vez.
+---
 
-## Endpoints destacados
+## 🌐 Despliegue
 
-### Dashboard
-- `GET /api/dashboard/resumen`
-- `GET /api/dashboard/vencimientos`
-- `GET /api/dashboard/asistencia/dias`
-- `GET /api/dashboard/asistencia/horas`
-- `GET /api/dashboard/asistencia/top-clientes`
-
-### Reconocimiento facial
-- `POST /api/face/enroll`
-- `POST /api/face/identify`
-- `POST /api/asistencias/face/confirm`
-
-## Despliegue
-
-### Backend
-Se puede desplegar en servicios como Render usando variables de entorno y un motor PostgreSQL externo.
-
-### Frontend
-El frontend ya incluye scripts para build y deploy estático, además de configuración `homepage` para GitHub Pages.
-
+### Frontend (GitHub Pages)
 ```bash
 npm run build
 npm run deploy
 ```
 
-## Recomendaciones técnicas para la siguiente etapa
+### Backend
+Recomendado:
+- Render
+- Railway
+- VPS con Gunicorn
 
-- mover la creación automática de tablas a migraciones con Flask-Migrate
-- separar requerimientos por entorno (`base`, `dev`, `prod`)
-- agregar `.env.example`
-- documentar endpoints completos
-- incorporar pruebas automáticas
-- ajustar README con capturas de pantalla
-- definir flujo de despliegue productivo backend/frontend
-- revisar compatibilidad de Node con Vite y React Router usados
+---
 
-## Roadmap sugerido
+## 🧠 Buenas prácticas aplicadas
 
-- mejora del módulo de caja
-- dashboard administrativo más completo
-- reportes avanzados
-- control por roles más fino
-- consolidación del reconocimiento facial
-- empaquetado para instalación local
-- despliegue estable en nube
+- Arquitectura modular (blueprints)
+- Separación frontend/backend
+- Variables de entorno
+- API REST estructurada
+- Manejo de zona horaria (America/Santiago)
 
-## Autor
+---
+
+## 🚧 Roadmap
+
+- [ ] Migraciones con Flask-Migrate
+- [ ] Roles avanzados
+- [ ] Logs centralizados
+- [ ] Tests automatizados
+- [ ] Dockerización
+- [ ] CI/CD
+- [ ] Deploy productivo completo
+
+---
+
+## 👨‍💻 Autor
 
 **Juan Francisco Salinas Aedo**  
 Ingeniero Informático  
-GitHub: https://github.com/juansalinasaedo  
-Repositorio: https://github.com/juansalinasaedo/gym-app2
+
+🔗 https://github.com/juansalinasaedo
+
+---
+
+## ⭐ Nota
+
+Este proyecto está en evolución constante y enfocado en uso real.  
+Se recomienda para aprendizaje avanzado de desarrollo full-stack con Python + React.
+
