@@ -1,28 +1,35 @@
-# Node & Vite
-node_modules/
-dist/
-.vite/
-.env
-.env.*
-!.env.example
-
-# Python / Flask
+# Python
 __pycache__/
 *.pyc
-instance/
-*.db
+*.pyo
+*.pyd
 .env
 venv/
-.env.development
-.env.production
+.env.*
 
-# OS files
+# Flask
+instance/
+*.sqlite3
+*.db
+
+# Node
+node_modules/
+dist/
+build/
+
+# Vite
+.vite/
+
+# Logs
+*.log
+
+# OS
 .DS_Store
 Thumbs.db
 
-# entornos y BD locales
-.venv/
-gym-app/.venv/
-gym-app/instance/
-gym-app/gym.db
-gym-app/*.sqlite
+# IDE
+.vscode/
+.idea/
+
+# Otros
+*.zip
