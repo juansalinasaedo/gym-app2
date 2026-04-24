@@ -33,3 +33,10 @@ Thumbs.db
 
 # Otros
 *.zip
+
+venv/
+gym-app/venv/
+__pycache__/
+*.pyc
+gym-ui/node_modules/
+gym-ui/dist/
