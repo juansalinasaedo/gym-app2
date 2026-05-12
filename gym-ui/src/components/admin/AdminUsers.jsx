@@ -35,9 +35,11 @@ export default function AdminUsers() {
 
   async function load() {
     setLoading(true);
+    setMsg(null);
+  
     try {
       const data = await apiUsersList();
-      setItems(data.users || []);
+      setItems(Array.isArray(data) ? data : data.items || data.users || []);
     } catch (e) {
       setMsg(`⚠️ Error al cargar usuarios: ${e.message}`);
     } finally {

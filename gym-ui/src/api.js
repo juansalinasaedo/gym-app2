@@ -88,21 +88,21 @@ export async function doJson(path, opts = {}) {
 // -------------------- auth --------------------
 
 export async function apiLogin(username, password) {
-  return doJson(`/api/auth/login`, {
+  return doJson(`/auth/login`, {
     method: "POST",
     body: JSON.stringify({ username, password }),
   });
 }
 
 export async function apiLogout() {
-  return doJson(`/api/auth/logout`, {
+  return doJson(`/auth/logout`, {
     method: "POST",
     body: JSON.stringify({}),
   });
 }
 
 export async function apiMe() {
-  return fetchJson(`/api/auth/me`);
+  return fetchJson(`/auth/me`);
 }
 
 // -------------------- clientes --------------------
@@ -292,34 +292,39 @@ export async function apiGetVencimientosProximos(days = 7) {
 }
 
 export async function apiUsersList() {
-  return fetchJson(`/api/users`);
+  return fetchJson(`/auth/users`);
 }
 
 export async function apiUsersCreate(payload) {
-  return doJson(`/api/users`, {
+  return doJson(`/auth/users`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export async function apiUsersToggle(user_id) {
-  return doJson(`/api/users/${user_id}/toggle`, {
-    method: "POST",
-    body: JSON.stringify({}),
+export async function apiUsersToggle(user_id, enabled) {
+  return doJson(`/auth/users/${user_id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
   });
 }
 
 export async function apiUsersDelete(user_id) {
-  return doJson(`/api/users/${user_id}`, {
+  return doJson(`/auth/users/${user_id}`, {
     method: "DELETE",
     body: JSON.stringify({}),
   });
 }
 
 export async function apiUsersResetPassword(user_id, new_password) {
-  return doJson(`/api/users/${user_id}/reset-password`, {
-    method: "POST",
-    body: JSON.stringify({ new_password }),
+  const password = String(new_password || "").trim();
+
+  return doJson(`/auth/users/${user_id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      password,
+      new_password: password,
+    }),
   });
 }
 
